@@ -78,6 +78,12 @@ namespace ApexBrake.Simulation
             for (int i = 0; i < pieces.Count; i++)
             {
                 var p = pieces[i];
+                if (!LaneMap.IsValidLaneCount(p.LaneCount))
+                    throw new ArgumentException($"Layout rule: piece {i} LaneCount must be 1, 2, 3 or 5.");
+                if (p.LaneCount < LaneMap.HomeLanes && p.Kind != PieceKind.Straight)
+                    throw new ArgumentException($"Layout rule: piece {i} ({p.Kind}) must have 5 lanes; only Straight pieces may narrow.");
+                if (i == 0 && p.LaneCount != LaneMap.HomeLanes)
+                    throw new ArgumentException("Layout rule: first piece must have 5 lanes.");
                 if (!(p.Length > 0f)) throw new ArgumentException($"Layout rule: piece {i} Length must be > 0.");
                 if ((p.Kind == PieceKind.Corner || p.Kind == PieceKind.Bump) && !(p.SafeSpeed > 0f))
                     throw new ArgumentException($"Layout rule: piece {i} ({p.Kind}) SafeSpeed must be > 0.");
