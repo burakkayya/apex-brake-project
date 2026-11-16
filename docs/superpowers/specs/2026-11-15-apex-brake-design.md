@@ -350,6 +350,41 @@ Kullanıcı Faz 2'yi görünce savrulmayı ve şerit takibini yapay buldu. Bu b�
 - Her yarışta farklı form; viraj başına değişen risk; ara sıra büyük hata, ara sıra kusursuz geçiş; karar gecikmesi (tepki süresi); startta farklı çıkış; kayarken panik freni; çizgide hafif gezinme.
 - Gizli lastik bant (geride kalana yardım) yoktur **[Ö]**.
 
+## 12. Revizyon (2026-11-17): Gerçek fizik
+
+Kullanıcı §11.1'deki formül tabanlı yanal modeli de reddetti: "araba fiziği için hiçbir hesaplama, limit, sınır olmasın; doğrudan gerçek fizik uygulansın". Bu bölüm §3.2–3.5, §3.7, §6.2'nin hayalet kısımları ve §11.1–11.3'ü **geçersiz kılar**. §11.4 (Lastik kartı), §11.5 (Reklamsız) ve §11.6 (kamera) geçerlidir.
+
+### 12.1 Ana mekanik fizik motorudur [K]
+- Araç, Unity fizik motorunda gerçek bir gövdedir: kütle, süspansiyon, dört lastik. Hızlanma motor kuvvetinden, yavaşlama fren kuvvetinden, kayma/drift lastik sürtünmesinin yetmemesinden, atlama ve takla yerçekimi ve geometriden doğar.
+- Oyunun kurallarında **güvenli hız, sınır hızı, yüzde bandı, viraja giriş hızı ya da rampa/tümsek geçiş hızı diye bir kavram yoktur**. Hiçbir sonuç (savrulma, çakılma, atlayabilme) bir hız karşılaştırmasıyla verilmez.
+- Pist gerçek çarpışma yüzeyidir: rampa gerçek eğim ve gerçek boşluk, tümsek gerçek çıkıntıdır.
+- Ayar yalnızca fiziksel değerlerle yapılır: kütle, motor kuvveti, fren kuvveti, lastik sürtünmesi, süspansiyon, yerçekimi, hava direnci **[Ö]**. Yükseltmeler bunlara bağlanır: İvme → motor kuvveti, Maksimum Hız → hız tavanı/güç, Lastik → lastik sürtünmesi.
+- **Kontrol [K/Ö]:** oyuncu yalnızca fren yapar. Direksiyonu, aracı kendi çizgisine çeviren bir sanal sürücü tutar; lastikler tutunamazsa araç yine kayar.
+- Deterministik sabit adımlı saf C# simülasyon hedefi (§7'de) araç dinamiği için terk edilmiştir.
+
+### 12.2 Eleme ve yeniden doğma [K]
+- Araç **yolun dışına çıkarsa** (yol yüzeyi dışındaki zemine değerse ya da boşluğa düşerse) ya da **ters/yan dönüp toparlanamazsa** oyun dışı kalır.
+- **Yerel mod (botlarla kariyer):** eleme.
+- **Multiplayer:** eleme yok. Durum kesinleştikten sonra kısa bir gecikmeyle, çıktığı yerin belirli bir mesafe gerisinde yeniden doğar.
+- Sonsuz mod: tur biter.
+
+### 12.3 Temas [K]
+Araçların gerçek çarpışma gövdeleri vardır; oyuncu botlara, botlar oyuncuya çarpar. Canlı multiplayer'da da çarpışma olacaktır (her cihaz kendi aracını hesaplar; uzak araçlarla çarpışma yaklaşık olur).
+
+### 12.4 Hayalet yok, yerine bot [K]
+Kayıttan oynayan hayalet rakipler kaldırıldı. Multiplayer'da boş koltuklara bot oturur. Hayalet kaydı, hayalet havuzu ve ilgili bulut işleri (§6.2) plandan çıkar.
+
+### 12.5 Boost [K]
+Perfect Brake Boost tamamen kaldırıldı. **Not:** kullanıcı boost'u ileride başka bir biçimde geri eklemek istiyor; tasarımı o zaman birlikte yapılacak, yüzde/eşik tabanlı olmayacak.
+
+### 12.6 Botlar
+Aynı fizik aracını sürerler; fren kararını kendileri verir (ilerideki viraja, eğime ve kendi becerilerine bakarak), hata yapınca gerçekten kayar ya da yoldan çıkarlar. Her yarış farklı geçer. Lastik bant yok.
+
+### 12.7 Sonraya kalanlar
+- Faz 3 planı (`2026-11-16-faz-3-dongu.md`) bu revizyondan önce yazıldı; denge simülatörü kısmı gerçek fizikle çalışmaz. Kullanıcı onay verince yeniden yazılacak; Faz 2b'den yarım kalan görünüm/kamera işleri de Faz 3'e eklenecek.
+
+---
+
 ### 11.5 Reklamsız (No Ads) [K]
 §1'deki "reklamları kaldır satın alımı yok" kararı geri alındı: oyunda tek seferlik **Reklamsız** satın alımı olacak. **[Ö]** Kapsamı: bölüm arası geçiş reklamlarını kalıcı olarak kaldırır; sonsuz modda kasaya aktarım için izlenen ödüllü reklam kalır (o reklam bir ödül karşılığıdır). Satın alım hesaba bağlıdır ve yeniden yüklemede geri yüklenir. Faz 7'de reklamlarla birlikte uygulanır (Unity IAP).
 
