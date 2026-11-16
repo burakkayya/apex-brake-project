@@ -30,7 +30,12 @@ Kural: bir görev ancak burada `Task N: complete` satırı varsa bitmiştir. Dev
 - Ruling: Task 7 `Respawn_NeverLandsInsideAnotherObstacle`: "o engelin Start'ından önceki ilk Straight" = ÇAKILAN engelden önceki ilk Straight (test 80'i bekliyor: 85'teki viraj için aradaki 5 m'lik düz) — yanlışsa: aradaki düz çok kısaysa yeniden doğma adaletsiz olur, tasarımda en az ~15 m düz bırakılmalı.
 - Ruling: Skid hızı kaybı Tick başı hızından hesaplanır (o Tick'te ivme uygulanmaz); kalkışta hız Tick başı hızına sabitlenir — testlerdeki 13.2 / 20.0 beklentileri için — yanlışsa: ± 0.16 m/s sapma.
 - Task 3: bekliyor (BuildScript + CI; telefon/CI onayı gerektirenler atlanacak).
-- Task 8–10: bekliyor.
+- Task 8: complete — SimClockTests 6/6 geçti; TouchBrakeInput cihazda Task 10 Step 4'te doğrulanacak.
+- Task 9: complete — PlayMode 6/6 geçti; gri kutu parçalar, Recipe_Graybox üretildi (17 parça, 1109,04 m).
+- Ruling: Recipe_Graybox toplam 1109 m (plan aralığı 950–1100) — plan tarifi sabit ve sıra bozulmasın diye kısaltılmadı, sapma %0,8 — yanlışsa: bir Straight100 → Straight50 yapılır.
+- Ruling: Rampa/tümsek çizgisi düz; 2 m yükselti ve tümsek yalnızca görsel mesh (sim zaten yüksekliği bilmiyor); uçuş yayını CarView çizer.
+- Ruling: SplineContainer.Evaluate tanjantı yerel uzayda döndü ve Linear knot'ta sıfır — TrackPath.EvaluateWorld yerelde değerlendirip dünyaya çeviriyor, sıfır tanjantta komşu örnekten yön türetiyor.
+- Task 10: bekliyor.
 
 ## Kullanıcı onayı gerektirenler
 

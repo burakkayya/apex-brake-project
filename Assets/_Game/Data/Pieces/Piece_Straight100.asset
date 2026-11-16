@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e53a4a63a10d08b4880d351260956cec, type: 3}
+  m_Name: Piece_Straight100
+  m_EditorClassIdentifier: ApexBrake.Track::ApexBrake.Track.TrackPieceAsset
+  kind: 0
+  prefab: {fileID: 3275932388012593613, guid: a27681cf95af8334cb58cd4b0c8396ec, type: 3}
+  radius: 0
+  safeSpeedOverride: 0
+  minJumpSpeed: 0
+  gapLength: 0
