@@ -26,7 +26,11 @@ namespace ApexBrake.Racing
         VehicleMotor _motor;
         bool _hasPose;
 
-        void Awake() => _motor = GetComponent<VehicleMotor>();
+        void Awake()
+        {
+            _motor = GetComponent<VehicleMotor>();
+            _motor.Placed += ResetProjection;
+        }
 
         /// <summary>İzdüşüm ipucunu sıfırlar (yeniden doğma / yeni pist).</summary>
         public void ResetProjection() { _hasPose = false; Refresh(); }

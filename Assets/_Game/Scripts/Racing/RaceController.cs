@@ -6,8 +6,6 @@ using ApexBrake.Track;
 
 namespace ApexBrake.Racing
 {
-    public enum RaceState { Countdown, Racing, Ended }
-
     /// <summary>5 araçlı yarışı sürer: geri sayım, sabit adımlı RaceSim, bitiş gecikmesi, yeniden başlatma.</summary>
     [DefaultExecutionOrder(-100)]
     public sealed class RaceController : MonoBehaviour

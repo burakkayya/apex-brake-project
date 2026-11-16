@@ -25,6 +25,8 @@ namespace ApexBrake.Racing
         public bool BodyOnGround { get; private set; }
         /// <summary>Teker ya da gövde yol dışı zemine değiyor.</summary>
         public bool TouchesGround => GroundContactWheels > 0 || BodyOnGround;
+        /// <summary>Gövde herhangi bir yüzeye (yol ya da zemin) değiyor.</summary>
+        public bool BodyOnSurface { get; private set; }
         public bool IsAirborne { get; private set; }
         public bool IsSliding { get; private set; }
         public float UpDot { get; private set; } = 1f;
@@ -37,14 +39,25 @@ namespace ApexBrake.Racing
         VehicleMotor _motor;
         float _airTime;
         Vector3 _prevV; bool _hasPrev;
-        bool _bodyGroundThisStep;
+        bool _bodyGroundThisStep, _bodySurfaceThisStep;
 
-        void OnCollisionStay(Collision c) { if (c.collider.gameObject.layer == TrackLayers.Ground) _bodyGroundThisStep = true; }
-        void OnCollisionEnter(Collision c) { if (c.collider.gameObject.layer == TrackLayers.Ground) _bodyGroundThisStep = true; }
+        void OnCollisionStay(Collision c) => NoteContact(c);
+        void OnCollisionEnter(Collision c) => NoteContact(c);
 
-        void Awake() => _motor = GetComponent<VehicleMotor>();
+        void NoteContact(Collision c)
+        {
+            int layer = c.collider.gameObject.layer;
+            if (layer == TrackLayers.Ground) { _bodyGroundThisStep = true; _bodySurfaceThisStep = true; }
+            else if (layer == TrackLayers.Road) _bodySurfaceThisStep = true;
+        }
 
-        public void ResetState() { _airTime = 0f; IsAirborne = false; _hasPrev = false; BodyOnGround = false; _bodyGroundThisStep = false; }
+        void Awake()
+        {
+            _motor = GetComponent<VehicleMotor>();
+            _motor.Placed += ResetState;
+        }
+
+        public void ResetState() { _airTime = 0f; IsAirborne = false; _hasPrev = false; BodyOnGround = false; BodyOnSurface = false; _bodyGroundThisStep = false; _bodySurfaceThisStep = false; }
 
         void FixedUpdate()
         {
@@ -77,8 +90,8 @@ namespace ApexBrake.Racing
                 if (layer == TrackLayers.Ground) onGround++;
                 else if (layer == TrackLayers.Road) onRoad++;
             }
-            if (!rb.IsSleeping()) BodyOnGround = _bodyGroundThisStep;
-            _bodyGroundThisStep = false;
+            if (!rb.IsSleeping()) { BodyOnGround = _bodyGroundThisStep; BodyOnSurface = _bodySurfaceThisStep; }
+            _bodyGroundThisStep = false; _bodySurfaceThisStep = false;
             GroundedWheels = grounded;
             GroundContactWheels = onGround;
             RoadContactWheels = onRoad;

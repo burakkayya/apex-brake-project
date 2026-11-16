@@ -61,3 +61,19 @@ kütle 1000 kg, ağırlık merkezi 0,30 m (temas düzleminden), gövde 1,8×0,5�
 | Düşük kare hızı | 15 ve 60 fps: 5 sn'de 110,32 / 108,32 m (15 fps'te ölçüm 3 adım fazla sürdü: 5,06 sn); fark %1,8 |
 
 Task 2: complete — VehiclePhysicsTests 18/18 (iki ardışık koşu, aynı sayılar), PlayMode toplam 38/38 (Explicit geliştirme testleri hariç), EditMode 149/149
+
+## Görev 3 — Yarış kuralları (RaceManager)
+
+Testler önce yazıldı; boş iskeletle 16 testten 15'i kırmızı (1'i — startta temas yok — iskelette kendiliğinden geçiyordu), sonra uygulama.
+
+- Ruling: `RaceController.cs` silinmedi; eski HUD/görünüm/mini harita/sonuç paneli ve `RaceDebugProbe` ona bağlı ve Görev 5'te yeniden yazılacak. `RaceManager` yanına eklendi; ortak `RaceState` enum'u `RaceController.cs`'ten `RaceState.cs`'e taşındı (değerler aynı), eski kod dokunulmadan derleniyor — bedeli: Görev 5'te `RaceController` ve bağımlıları silinmeli.
+- Ruling: `OffRoad` = (en az 2 teker Ground'a değiyor YA DA gövde Ground'a değiyor) ve gövde merkezinin altında Road yok, 0,4 sn kesintisiz. "Havada" = hiçbir teker yerde değil VE gövde hiçbir yüzeye (Road/Ground) değmiyor; havadayken ters dönme sayacı bekler, yol dışı sayacı sıfırlanır. İlk sürümde "havada"yı yalnızca Ground temasına bakarak tanımlamıştım; yol üstünde ters yatan araç (gövdesi Road'da, teker yok) "havada" sayılıp hiç `Flipped` olmuyordu — test yakaladı — bedeli: yok.
+- Ruling: `Fell` = gövde merkezi izdüşümdeki (boşlukta sanal) yol yüzeyinin 3 m'den fazla altında, anında kesinleşir; mevcut pistlerde zemin yolun yalnızca 0,5 m altında olduğundan pratikte boşluğa düşen araç `OffRoad` (gövde/teker Ground'a değer) olarak çıkar — bedeli: derin uçurumlu pist gelirse `Fell` devreye girer.
+- Ruling: `RacerEntry.TargetLateralOverride` (float?) eklendi: doluysa ev çizgisi yerine izlenir — Görev 4'teki `OvertakePlanner` ve testler bu kancayı kullanır — bedeli: yok.
+- Ruling: `VehicleMotor.Placed` olayı eklendi: start dizilimi/yeniden doğmada `LineDriver` izdüşümü tüm pistte yeniden arar ve telemetri sıfırlanır (aksi halde ±40 m pencere ışınlanan aracı yanlış yere izdüşürüyordu) — bedeli: yok.
+- Ruling: Yeniden doğma noktası `max(startDistance, çıkış mesafesi − 30)`; nokta bir Ramp/Bump parçasının [Start − 4, End] aralığına düşerse `Start − 6`'ya çekilir; ev çizgisinde, yol yönüne bakarak, hızı 0 — bedeli: yok.
+- Ruling: Bitiren araç kendi frenine basar (sürücü davranışı; pist sonu yol dışı olduğundan) ve oyun dışı denetimi bitirince durur — bedeli: Görev 4 `BotDriver` bitiren/oyun dışı araçta `Brake` yazmamalı.
+- Ruling: Test kurulumu: yana itme/bankete çıkma testlerinde oyuncu önce frenleyip grubun arkasına düşer (aksi halde yanındaki botlara fiziksel olarak çarpıp onları da yoldan çıkarıyordu ya da yanal hareketi engelleniyordu — ikisi de doğru fizik); bankete çıkış hedefi `HalfWidth + 0,5` (araç tümüyle 1,5 m'lik banketin üstünde) ve 2 m/sn ile kademeli verilir — `HalfWidth + 1,0`'da ya da ani 8,5 m hedef sıçramasında dış tekerler yol kenarından taşıp araç 0,5 m'lik basamaktan zemine kayıyor ve haklı olarak oyun dışı kalıyordu; yeniden doğma hızı `RacerRespawned` anında ölçülür (bir adım sonra motor zaten itiyor: 0,82 m/s) — bedeli: yok.
+- Not: itme testi dış kuvveti 25 → 60 m/s² (yanal itiş) — 25'te araç lastik tutunmasıyla (~30 m/s²) itişe karşı koyup yolda kalıyordu (fiziksel).
+
+Task 3: complete — RaceRulesTests 16/16 (iki ardışık koşu), PlayMode toplam 54/54 (Explicit geliştirme testleri hariç), EditMode 149/149

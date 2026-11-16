@@ -91,6 +91,7 @@ namespace ApexBrake.Racing
     }
 
     /// <summary>Yükseltmeler: 1 = taban. Motor kuvvetine, hız tavanına ve lastik sürtünmesine çarpan olarak uygulanır.</summary>
+    [System.Serializable]
     public struct VehicleUpgrades
     {
         public float Engine, TopSpeed, Tire;

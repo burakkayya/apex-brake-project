@@ -22,6 +22,8 @@ namespace ApexBrake.Racing
         public float SteerInput { get; set; }
 
         public Rigidbody Body { get; private set; }
+        /// <summary>PlaceAt sonrası (start dizilimi / yeniden doğma): izdüşüm ve telemetri sıfırlansın.</summary>
+        public event System.Action Placed;
         public VehicleUpgrades Upgrades { get; private set; } = VehicleUpgrades.Base;
 
         // 0 FL, 1 FR, 2 RL, 3 RR
@@ -110,6 +112,7 @@ namespace ApexBrake.Racing
             foreach (var w in wheels) if (w != null) { w.steerAngle = 0f; w.motorTorque = 0f; w.brakeTorque = config != null ? config.holdBrakeTorque : 0f; }
             Physics.SyncTransforms();
             Body.WakeUp();
+            Placed?.Invoke();
         }
 
         void FixedUpdate()
