@@ -54,7 +54,7 @@ namespace ApexBrake.Tests.PlayMode
         TrackPieceAsset Asset(PieceKind kind, GameObject prefab, float radius = 0f, float safe = 0f)
         {
             var a = ScriptableObject.CreateInstance<TrackPieceAsset>();
-            a.kind = kind; a.prefab = prefab; a.radius = radius; a.safeSpeedOverride = safe;
+            a.kind = kind; a.prefab = prefab; a.radius = radius;
             if (kind == PieceKind.Corner) a.turnSign = 1; // Faz 2b: virajda TurnSign zorunlu
             _cleanup.Add(a);
             return a;
@@ -158,7 +158,7 @@ namespace ApexBrake.Tests.PlayMode
             var b = MakeBuilder(pieces);
             b.Build();
             b.Build();
-            Assert.AreEqual(pieces.Length, b.transform.childCount);
+            Assert.AreEqual(pieces.Length + 1, b.transform.childCount); // parçalar + Ground
             yield return null;
         }
 

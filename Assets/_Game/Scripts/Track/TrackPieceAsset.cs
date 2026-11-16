@@ -3,29 +3,33 @@ using ApexBrake.Simulation;
 
 namespace ApexBrake.Track
 {
+    /// <summary>Parça verisi: yalnızca geometri (tür, yarıçap, dönüş yönü, şerit sayısı, boşluk). Hız eşiği yoktur.</summary>
     [CreateAssetMenu(menuName = "Apex Brake/Track Piece")]
     public sealed class TrackPieceAsset : ScriptableObject
     {
         public PieceKind kind;
-        public GameObject prefab;       // kökte SplineContainer; çizgi yerel (0,0,0)'dan +Z yönünde başlar
-        public float radius;            // Corner: > 0 zorunlu; fizik bunu kullanır (SafeSpeed yalnızca nominal/HUD)
-        public float safeSpeedOverride; // > 0 ise türetilen değeri ezer; Bump ve Ramp için zorunlu
-        public float minJumpSpeed;      // Ramp
-        public float gapLength;         // Ramp
+        public GameObject prefab;       // kökte SplineContainer; çizgi yerel (0,0,0)'dan +Z yönünde başlar; yüzey çocukta (Road katmanı)
+        public float radius;            // Corner: > 0 zorunlu (geometri)
+        public float gapLength;         // Ramp: boşluk uzunluğu (geometri)
         public int laneCount = 5;       // 1, 2, 3 veya 5; yalnızca Straight 5'ten az olabilir
         public int turnSign;            // Corner: -1 sola, +1 sağa; diğerleri 0
 
+        // Yalnızca eski saf C# simülasyonun (RaceSim/CarSim, Görev 5'te silinir) TrackLayout doğrulamasını
+        // geçebilmesi için; yeni fizik araç ve RaceManager bunları OKUMAZ.
+        const float LegacyBumpSpeed = 20f, LegacyRampSpeed = 26f, LegacyRampMinJump = 15f;
+
         public TrackPieceDef ToDef(float measuredLength)
         {
-            float safe = 0f;
-            if (radius > 0f) safe = TrackPieceDef.SafeSpeedFromRadius(radius);
-            if (safeSpeedOverride > 0f) safe = safeSpeedOverride;
+            float legacy = 0f;
+            if (kind == PieceKind.Corner && radius > 0f) legacy = TrackPieceDef.SafeSpeedFromRadius(radius);
+            if (kind == PieceKind.Bump) legacy = LegacyBumpSpeed;
+            if (kind == PieceKind.Ramp) legacy = LegacyRampSpeed;
             return new TrackPieceDef
             {
                 Kind = kind,
                 Length = measuredLength,
-                SafeSpeed = kind == PieceKind.Straight ? 0f : safe,
-                MinJumpSpeed = kind == PieceKind.Ramp ? minJumpSpeed : 0f,
+                SafeSpeed = legacy,
+                MinJumpSpeed = kind == PieceKind.Ramp ? LegacyRampMinJump : 0f,
                 GapLength = kind == PieceKind.Ramp ? gapLength : 0f,
                 LaneCount = laneCount,
                 TurnSign = turnSign,

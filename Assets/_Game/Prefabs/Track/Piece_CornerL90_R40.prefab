@@ -124,7 +124,8 @@ GameObject:
   - component: {fileID: 8156433940742530092}
   - component: {fileID: 2655153184678275434}
   - component: {fileID: 468045989501109567}
-  m_Layer: 0
+  - component: {fileID: 5992068120833063498}
+  m_Layer: 8
   m_Name: Road
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -180,6 +181,8 @@ MeshRenderer:
   m_RendererPriority: 0
   m_Materials:
   - {fileID: 2100000, guid: c156d8e2813aec544bdbb042c5402469, type: 2}
+  - {fileID: 2100000, guid: 9601b150ee34b004894744ef2584a5af, type: 2}
+  - {fileID: 2100000, guid: eece50074d3f51f4681f662cb61699f9, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -203,3 +206,25 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!64 &5992068120833063498
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5941417029081236701}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 4300000, guid: c3166ac1465321d4d97cf2d17251a431, type: 2}

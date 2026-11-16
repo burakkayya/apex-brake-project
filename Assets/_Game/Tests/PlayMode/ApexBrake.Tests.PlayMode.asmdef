@@ -4,6 +4,7 @@
   "references": [
     "ApexBrake.Simulation",
     "ApexBrake.Track",
+    "ApexBrake.Racing",
     "Unity.Splines",
     "Unity.Mathematics",
     "UnityEngine.TestRunner",

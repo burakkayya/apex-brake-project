@@ -1,14 +1,13 @@
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Splines;
-using Unity.Mathematics;
 using ApexBrake.Simulation;
 using ApexBrake.Track;
 
 namespace ApexBrake.Editor
 {
-    /// <summary>Gri kutu pist parçalarını (prefab + TrackPieceAsset) ve Recipe_Graybox'ı üretir.</summary>
+    /// <summary>Gri kutu pist parçalarını (prefab + TrackPieceAsset) ve tarifleri üretir. Geometri
+    /// TrackPieceGeometry'dedir (gerçek çarpışma yüzeyi: yol + banket + yan etek, katman Road).</summary>
     public static class GrayboxPieceFactory
     {
         const string Root = "Assets/_Game";
@@ -16,47 +15,50 @@ namespace ApexBrake.Editor
         const string PieceDir = Root + "/Data/Pieces";
         const string LevelDir = Root + "/Data/Levels";
         const string MaterialDir = Root + "/Materials";
-        const float RoadWidth = 16f; // 5 şerit x 3,2 m
 
         [MenuItem("Apex Brake/Graybox/Parçaları Üret")]
         public static void Generate()
         {
+            ProjectPhysicsSetup.EnsureLayers(false);
             EnsureDir(PrefabDir); EnsureDir(PieceDir); EnsureDir(LevelDir); EnsureDir(MaterialDir);
 
-            var road = Mat("Road_Gray", new Color(0.35f, 0.35f, 0.37f));
-            var cornerMat = Mat("Road_Corner", new Color(0.55f, 0.30f, 0.30f));
-            var rampMat = Mat("Road_Ramp", new Color(0.75f, 0.65f, 0.20f));
-            var bumpMat = Mat("Road_Bump", new Color(0.25f, 0.45f, 0.60f));
+            var shoulder = Mat("Road_Shoulder", new Color(0.62f, 0.56f, 0.42f));
+            var skirt = Mat("Road_Skirt", new Color(0.30f, 0.28f, 0.26f));
+            TrackPieceGeometry.Materials M(Material road) => new TrackPieceGeometry.Materials { Road = road, Shoulder = shoulder, Skirt = skirt };
+
+            var road = M(Mat("Road_Gray", new Color(0.35f, 0.35f, 0.37f)));
+            var cornerMat = M(Mat("Road_Corner", new Color(0.55f, 0.30f, 0.30f)));
+            var rampMat = M(Mat("Road_Ramp", new Color(0.75f, 0.65f, 0.20f)));
+            var bumpMat = M(Mat("Road_Bump", new Color(0.25f, 0.45f, 0.60f)));
+            Mat("Ground_Grass", new Color(0.36f, 0.45f, 0.30f));
 
             var pieces = new Dictionary<string, TrackPieceAsset>();
 
-            pieces["Straight50"] = MakePiece("Piece_Straight50", PieceKind.Straight, StraightKnots(50f), 0f, 50f, road, null, a => { });
-            pieces["Straight100"] = MakePiece("Piece_Straight100", PieceKind.Straight, StraightKnots(100f), 0f, 100f, road, null, a => { });
+            pieces["Straight50"] = Save(TrackPieceGeometry.CreateStraight("Piece_Straight50", 50f, 5, road), PieceKind.Straight, a => { });
+            pieces["Straight100"] = Save(TrackPieceGeometry.CreateStraight("Piece_Straight100", 100f, 5, road), PieceKind.Straight, a => { });
 
-            foreach (var (name, radius) in new[] { ("R40", 40f), ("R25", 25f) })
+            foreach (var (name, radius) in new[] { ("R60", 60f), ("R40", 40f), ("R25", 25f) })
             {
                 foreach (var right in new[] { false, true })
                 {
                     string id = (right ? "CornerR90_" : "CornerL90_") + name;
                     float r = radius;
                     int sign = right ? 1 : -1;
-                    pieces[id] = MakePiece("Piece_" + id, PieceKind.Corner, ArcKnots(r, right), 0f, -1f, cornerMat, null,
+                    pieces[id] = Save(TrackPieceGeometry.CreateCorner("Piece_" + id, r, right, cornerMat), PieceKind.Corner,
                         a => { a.radius = r; a.turnSign = sign; });
                 }
             }
 
-            pieces["Ramp"] = MakePiece("Piece_Ramp", PieceKind.Ramp, StraightKnots(40f), 0f, 28f, rampMat, go => AddRampWedge(go, rampMat),
-                a => { a.safeSpeedOverride = 26f; a.minJumpSpeed = 15f; a.gapLength = 12f; });
-            pieces["Bump"] = MakePiece("Piece_Bump", PieceKind.Bump, StraightKnots(12f), 0f, 12f, bumpMat, go => AddBump(go, bumpMat),
-                a => { a.safeSpeedOverride = 20f; });
+            pieces["Ramp"] = Save(TrackPieceGeometry.CreateRamp("Piece_Ramp", rampMat), PieceKind.Ramp, a => { a.gapLength = TrackPieceGeometry.RampGap; });
+            pieces["Bump"] = Save(TrackPieceGeometry.CreateBump("Piece_Bump", bumpMat), PieceKind.Bump, a => { });
 
-            // Daralma parçaları: 60 m düz; iki ucunda 16 m'den dar genişliğe 15 m'lik görsel kama.
+            // Daralma parçaları: 60 m düz; iki ucunda 15 m'lik genişlik geçişi.
             foreach (var lanes in new[] { 3, 2 })
             {
                 int n = lanes;
-                var narrowMat = Mat("Road_Narrow" + n, n == 3 ? new Color(0.45f, 0.38f, 0.55f) : new Color(0.55f, 0.32f, 0.55f));
-                pieces["Narrow" + n + "_60"] = MakePiece("Piece_Narrow" + n + "_60", PieceKind.Straight, StraightKnots(NarrowLength), 0f, NarrowLength,
-                    narrowMat, null, a => { a.laneCount = n; }, d => NarrowWidth(d, n * LaneWidth));
+                var narrowMat = M(Mat("Road_Narrow" + n, n == 3 ? new Color(0.45f, 0.38f, 0.55f) : new Color(0.55f, 0.32f, 0.55f)));
+                pieces["Narrow" + n + "_60"] = Save(TrackPieceGeometry.CreateStraight("Piece_Narrow" + n + "_60", 60f, n, narrowMat), PieceKind.Straight,
+                    a => { a.laneCount = n; });
             }
 
             WriteRecipe(LevelDir + "/Recipe_Graybox.asset", pieces, new[]
@@ -75,17 +77,6 @@ namespace ApexBrake.Editor
             Debug.Log("[GrayboxPieceFactory] Parçalar, Recipe_Graybox ve Recipe_Graybox_Race üretildi.");
         }
 
-        const float LaneWidth = 3.2f;
-        const float NarrowLength = 60f;
-        const float NarrowWedge = 15f;
-
-        static float NarrowWidth(float d, float narrow)
-        {
-            if (d < NarrowWedge) return Mathf.Lerp(RoadWidth, narrow, d / NarrowWedge);
-            if (d > NarrowLength - NarrowWedge) return Mathf.Lerp(narrow, RoadWidth, (d - (NarrowLength - NarrowWedge)) / NarrowWedge);
-            return narrow;
-        }
-
         static void WriteRecipe(string path, Dictionary<string, TrackPieceAsset> pieces, string[] keys)
         {
             var recipe = LoadOrCreate<LevelRecipe>(path);
@@ -94,60 +85,19 @@ namespace ApexBrake.Editor
             EditorUtility.SetDirty(recipe);
         }
 
-        // ---- çizgi tanımları -------------------------------------------------
-
-        static BezierKnot[] StraightKnots(float length) => new[]
+        /// <summary>Çalışma anında kurulan parça nesnesinin meshini varlık olarak kaydeder, prefab ve TrackPieceAsset yazar.</summary>
+        static TrackPieceAsset Save(GameObject go, PieceKind kind, System.Action<TrackPieceAsset> configure)
         {
-            new BezierKnot(new float3(0, 0, 0)),
-            new BezierKnot(new float3(0, 0, length)),
-        };
-
-        static BezierKnot[] ArcKnots(float radius, bool right)
-        {
-            float k = 0.5523f * radius;
-            float side = right ? 1f : -1f;
-            var end = Quaternion.LookRotation(new Vector3(side, 0, 0));
-            return new[]
-            {
-                new BezierKnot(new float3(0, 0, 0), new float3(0, 0, -k), new float3(0, 0, k), quaternion.identity),
-                new BezierKnot(new float3(side * radius, 0, radius), new float3(0, 0, -k), new float3(0, 0, k), end),
-            };
-        }
-
-        // ---- parça üretimi ---------------------------------------------------
-
-        static TrackPieceAsset MakePiece(string assetName, PieceKind kind, BezierKnot[] knots, float roadFrom, float roadTo,
-            Material mat, System.Action<GameObject> decorate, System.Action<TrackPieceAsset> configure, System.Func<float, float> widthAt = null)
-        {
-            var go = new GameObject(assetName);
-            var container = go.AddComponent<SplineContainer>();
-            var spline = container.Spline;
-            spline.Clear();
-            bool linear = knots.Length == 2 && math.lengthsq(knots[0].TangentOut) == 0f;
-            foreach (var kn in knots) spline.Add(kn, linear ? TangentMode.Linear : TangentMode.Broken);
-
-            float length = spline.GetLength();
-            float to = roadTo < 0f ? length : roadTo;
-            var mesh = BuildRoadMesh(spline, roadFrom, to, widthAt ?? (_ => RoadWidth));
+            string assetName = go.name;
+            go.SetActive(true);
+            var mf = go.GetComponentInChildren<MeshFilter>(true);
+            var mesh = mf.sharedMesh;
             string meshPath = $"{PrefabDir}/{assetName}.mesh.asset";
             AssetDatabase.DeleteAsset(meshPath);
+            AssetDatabase.DeleteAsset($"{PrefabDir}/{assetName}.shoulder.asset");   // eski ayrı banket meshi
             AssetDatabase.CreateAsset(mesh, meshPath);
-
-            var roadGo = new GameObject("Road");
-            roadGo.transform.SetParent(go.transform, false);
-            roadGo.AddComponent<MeshFilter>().sharedMesh = mesh;
-            roadGo.AddComponent<MeshRenderer>().sharedMaterial = mat;
-
-            // Banket: yolun iki yanında 1,5 m düz renkli şerit (yolla örtüşmez; araç merkezi bunu da aşınca yoldan çıkar).
-            var shoulderMesh = BuildShoulderMesh(spline, roadFrom, to, widthAt ?? (_ => RoadWidth));
-            string shoulderPath = $"{PrefabDir}/{assetName}.shoulder.asset";
-            AssetDatabase.DeleteAsset(shoulderPath);
-            AssetDatabase.CreateAsset(shoulderMesh, shoulderPath);
-            var shoulderGo = new GameObject("Shoulder");
-            shoulderGo.transform.SetParent(go.transform, false);
-            shoulderGo.AddComponent<MeshFilter>().sharedMesh = shoulderMesh;
-            shoulderGo.AddComponent<MeshRenderer>().sharedMaterial = Mat("Road_Shoulder", ShoulderColor);
-            decorate?.Invoke(go);
+            var mc = go.GetComponentInChildren<MeshCollider>(true);
+            mc.sharedMesh = mesh;
 
             string prefabPath = $"{PrefabDir}/{assetName}.prefab";
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
@@ -156,118 +106,11 @@ namespace ApexBrake.Editor
             var asset = LoadOrCreate<TrackPieceAsset>($"{PieceDir}/{assetName}.asset");
             asset.kind = kind;
             asset.prefab = prefab;
-            asset.radius = 0f; asset.safeSpeedOverride = 0f; asset.minJumpSpeed = 0f; asset.gapLength = 0f;
+            asset.radius = 0f; asset.gapLength = 0f;
             asset.laneCount = 5; asset.turnSign = 0;
             configure(asset);
             EditorUtility.SetDirty(asset);
             return asset;
-        }
-
-        static Mesh BuildRoadMesh(Spline spline, float from, float to, System.Func<float, float> widthAt)
-        {
-            int segs = Mathf.Max(2, Mathf.CeilToInt((to - from) / 1f));
-            var pts = new Vector3[segs + 1];
-            var widths = new float[segs + 1];
-            for (int i = 0; i <= segs; i++)
-            {
-                float d = Mathf.Lerp(from, to, i / (float)segs);
-                float t = spline.ConvertIndexUnit(d, PathIndexUnit.Distance, PathIndexUnit.Normalized);
-                spline.Evaluate(Mathf.Clamp01(t), out float3 p, out _, out _);
-                pts[i] = p;
-                widths[i] = widthAt(d);
-            }
-
-            var verts = new Vector3[(segs + 1) * 2];
-            var tris = new List<int>();
-            for (int i = 0; i <= segs; i++)
-            {
-                Vector3 fwd = (i < segs ? pts[i + 1] - pts[i] : pts[i] - pts[i - 1]);
-                fwd.y = 0f; fwd.Normalize();
-                Vector3 right = Vector3.Cross(Vector3.up, fwd);
-                verts[i * 2] = pts[i] - right * (widths[i] * 0.5f);
-                verts[i * 2 + 1] = pts[i] + right * (widths[i] * 0.5f);
-                if (i < segs)
-                {
-                    int a = i * 2, b = a + 1, c = a + 2, d2 = a + 3;
-                    tris.AddRange(new[] { a, c, b, b, c, d2 });
-                }
-            }
-            var mesh = new Mesh { name = "Road" };
-            mesh.vertices = verts;
-            mesh.triangles = tris.ToArray();
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-            return mesh;
-        }
-
-        const float ShoulderWidth = 1.5f;   // SimTuning.ShoulderWidth ile aynı
-        static readonly Color ShoulderColor = new Color(0.62f, 0.56f, 0.42f);
-
-        // Sol ve sağ banket şeritleri: yol kenarından (genişlik/2) dışa 1,5 m.
-        static Mesh BuildShoulderMesh(Spline spline, float from, float to, System.Func<float, float> widthAt)
-        {
-            int segs = Mathf.Max(2, Mathf.CeilToInt((to - from) / 1f));
-            var verts = new Vector3[(segs + 1) * 4];
-            var tris = new List<int>();
-            var pts = new Vector3[segs + 1];
-            var widths = new float[segs + 1];
-            for (int i = 0; i <= segs; i++)
-            {
-                float d = Mathf.Lerp(from, to, i / (float)segs);
-                float t = spline.ConvertIndexUnit(d, PathIndexUnit.Distance, PathIndexUnit.Normalized);
-                spline.Evaluate(Mathf.Clamp01(t), out float3 p, out _, out _);
-                pts[i] = p;
-                widths[i] = widthAt(d);
-            }
-            for (int i = 0; i <= segs; i++)
-            {
-                Vector3 fwd = (i < segs ? pts[i + 1] - pts[i] : pts[i] - pts[i - 1]);
-                fwd.y = 0f; fwd.Normalize();
-                Vector3 right = Vector3.Cross(Vector3.up, fwd);
-                float half = widths[i] * 0.5f;
-                verts[i * 4 + 0] = pts[i] - right * (half + ShoulderWidth);   // sol dış
-                verts[i * 4 + 1] = pts[i] - right * half;                     // sol iç
-                verts[i * 4 + 2] = pts[i] + right * half;                     // sağ iç
-                verts[i * 4 + 3] = pts[i] + right * (half + ShoulderWidth);   // sağ dış
-                if (i < segs)
-                {
-                    int a = i * 4, n = a + 4;
-                    tris.AddRange(new[] { a, n, a + 1, a + 1, n, n + 1 });                 // sol
-                    tris.AddRange(new[] { a + 2, n + 2, a + 3, a + 3, n + 2, n + 3 });     // sağ
-                }
-            }
-            var mesh = new Mesh { name = "Shoulder" };
-            mesh.vertices = verts;
-            mesh.triangles = tris.ToArray();
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-            return mesh;
-        }
-
-        static void AddRampWedge(GameObject piece, Material mat)
-        {
-            // Kalkış rampası: boşluktan hemen önce, 4 m uzunlukta eğik levha (2 m yükselti).
-            var wedge = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            Object.DestroyImmediate(wedge.GetComponent<Collider>());
-            wedge.name = "RampWedge";
-            wedge.transform.SetParent(piece.transform, false);
-            float angle = Mathf.Atan2(2f, 4f) * Mathf.Rad2Deg;
-            wedge.transform.localScale = new Vector3(RoadWidth, 0.3f, 4.5f);
-            wedge.transform.localPosition = new Vector3(0, 1f, 26f);
-            wedge.transform.localRotation = Quaternion.Euler(-angle, 0, 0);
-            wedge.GetComponent<MeshRenderer>().sharedMaterial = mat;
-        }
-
-        static void AddBump(GameObject piece, Material mat)
-        {
-            var bump = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            Object.DestroyImmediate(bump.GetComponent<Collider>());
-            bump.name = "BumpMesh";
-            bump.transform.SetParent(piece.transform, false);
-            bump.transform.localScale = new Vector3(2f, RoadWidth * 0.5f, 2f);
-            bump.transform.localRotation = Quaternion.Euler(0, 0, 90f);
-            bump.transform.localPosition = new Vector3(0, 0f, 6f);
-            bump.GetComponent<MeshRenderer>().sharedMaterial = mat;
         }
 
         // ---- yardımcılar -----------------------------------------------------

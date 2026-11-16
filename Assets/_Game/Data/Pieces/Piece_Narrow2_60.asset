@@ -15,8 +15,6 @@ MonoBehaviour:
   kind: 0
   prefab: {fileID: 6870434982276596436, guid: 64ebef0686ace9c4a810bda49b3e0a9b, type: 3}
   radius: 0
-  safeSpeedOverride: 0
-  minJumpSpeed: 0
   gapLength: 0
   laneCount: 2
   turnSign: 0
