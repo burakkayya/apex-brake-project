@@ -143,3 +143,4 @@ crashlytics-build.properties
 /test-results*.xml
 
 Screenshots/
+/docs/graybox.png
