@@ -141,10 +141,53 @@ namespace ApexBrake.Simulation
             _crashWasRamp = ramp;
             Speed = 0f;
             SetPhase(CarPhase.Crashed);
+            if (_policy != CrashPolicy.Respawn) IsOut = true;
             _events.Add(new SimEvent(kind, pieceIndex, Distance));
         }
 
-        void TickCrashed() { }
+        int RespawnTicks => (int)(_tuning.RespawnDelay / Step + 0.5f);
+
+        void TickCrashed()
+        {
+            if (_policy != CrashPolicy.Respawn || _phaseTicks < RespawnTicks) return;
+
+            float point = RespawnPoint();
+            Distance = point;
+            Speed = 0f;
+            IsOut = false;
+            SetPhase(CarPhase.Driving);
+            _events.Add(new SimEvent(SimEventKind.Respawned, _layout.SpanAtDistance(point).Index, point));
+        }
+
+        float RespawnPoint()
+        {
+            var span = _layout.SpanAt(_crashPiece);
+            float point;
+            if (_crashWasRamp)
+            {
+                float takeoff = span.End - span.Def.GapLength;
+                float runUp = span.Def.MinJumpSpeed * span.Def.MinJumpSpeed / (2f * _stats.Acceleration) * _tuning.RampRunUpMargin;
+                point = takeoff - runUp;
+            }
+            else
+            {
+                point = span.Start - _tuning.CornerRespawnRunUp;
+            }
+            if (point < 0f) point = 0f;
+
+            // Başka bir engelin içine düşüyorsa, çakılan engelden önceki ilk düz parçanın başına çek.
+            var at = _layout.SpanAtDistance(point);
+            if (at.Def.Kind != PieceKind.Straight && at.Index != _crashPiece)
+            {
+                for (int i = _crashPiece - 1; i >= 0; i--)
+                {
+                    var prev = _layout.SpanAt(i);
+                    if (prev.Def.Kind == PieceKind.Straight) return prev.Start;
+                }
+                return 0f;
+            }
+            return point;
+        }
 
         void SetPhase(CarPhase p) { Phase = p; _phaseTicks = 0; }
     }

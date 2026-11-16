@@ -21,7 +21,16 @@ Kural: bir görev ancak burada `Task N: complete` satırı varsa bitmiştir. Dev
 - Task 2 Step 3: tamam — Portrait, IL2CPP, ARM64, API 26, com.apexbrake.game, Apex Brake, Input System, fixedDeltaTime 0.02.
 - Task 2 Step 4: kısmen — Mobile kalite katmanı Android varsayılanı; `Assets/_Game/Data/GlobalVolumeProfile.asset` (ACES, bloom, vignette) üretildi. Sahneye Global Volume ve kamera post-process Task 10'da `Race_Graybox` sahnesinde eklenecek; ekran görüntüsü doğrulaması orada.
 - Task 2: Ruling: Global Volume sahne nesnesi şablon sahnesine değil Task 10 sahnesine konur — Task 2'de kalıcı sahne yok, çift iş olur — yanlışsa: şablon sahnesine elle eklenir.
-- Task 3–10: bekliyor.
+- Task 2: complete.
+- Task 4: complete — 11/11 geçti (commit: feat(sim): pist modeli).
+- Task 5: complete — 9/9 geçti.
+- Task 6: complete — 14 yeni test, toplam 23 geçti.
+- Task 7: complete — toplam 42/42 EditMode geçti.
+- Ruling: Testler `unity test` yerine `unity command test run --filter <TamAd>` ile koşuluyor — `unity test` açık Editor varken reddediyor ve Editor'ü kapatmak yerine açık Editor'ü kullanmak güvenli — yanlışsa: Editor kapatılıp `unity test` kullanılır.
+- Ruling: Task 7 `Respawn_NeverLandsInsideAnotherObstacle`: "o engelin Start'ından önceki ilk Straight" = ÇAKILAN engelden önceki ilk Straight (test 80'i bekliyor: 85'teki viraj için aradaki 5 m'lik düz) — yanlışsa: aradaki düz çok kısaysa yeniden doğma adaletsiz olur, tasarımda en az ~15 m düz bırakılmalı.
+- Ruling: Skid hızı kaybı Tick başı hızından hesaplanır (o Tick'te ivme uygulanmaz); kalkışta hız Tick başı hızına sabitlenir — testlerdeki 13.2 / 20.0 beklentileri için — yanlışsa: ± 0.16 m/s sapma.
+- Task 3: bekliyor (BuildScript + CI; telefon/CI onayı gerektirenler atlanacak).
+- Task 8–10: bekliyor.
 
 ## Kullanıcı onayı gerektirenler
 
