@@ -1,0 +1,1 @@
+d=806.6 lat=0.12 v=123.7kmh slip=0.4 grounded=4 ground=False pitch=0.0 roll=0.0 up=1.00 brake=False

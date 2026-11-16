@@ -1,0 +1,57 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 367e576ac42356044945e4d0db6e46d8, type: 3}
+  m_Name: VehicleConfig_Default
+  m_EditorClassIdentifier: ApexBrake.Racing::ApexBrake.Racing.VehicleConfig
+  mass: 1000
+  centerOfMassHeight: 0.3
+  centerOfMassForward: 0
+  bodySize: {x: 1.8, y: 0.5, z: 4.1}
+  bodyGroundClearance: 0.3
+  cabinSize: {x: 1.45, y: 0.45, z: 2}
+  bodyFriction: 0.35
+  wheelBase: 2.6
+  trackWidth: 1.7
+  wheelRadius: 0.34
+  wheelMass: 20
+  engineForce: 11500
+  topSpeed: 43
+  torqueCurveExponent: 2
+  drive: 1
+  rearDriveShare: 0.7
+  brakeForce: 26000
+  frontBrakeShare: 0.75
+  abs: 1
+  absSlip: 0.3
+  holdBrakeTorque: 4000
+  dragCoefficient: 0.35
+  downforceCoefficient: 5
+  rollingResistance: 0.012
+  suspensionDistance: 0.3
+  spring: 30000
+  damper: 3500
+  targetPosition: 0.3
+  antiRoll: 3000
+  fwdExtremumSlip: 0.4
+  fwdExtremumValue: 1
+  fwdAsymptoteSlip: 0.8
+  fwdAsymptoteValue: 0.65
+  fwdStiffness: 1.3
+  sideExtremumSlip: 0.2
+  sideExtremumValue: 1
+  sideAsymptoteSlip: 0.5
+  sideAsymptoteValue: 0.75
+  frontSideStiffness: 1.5
+  rearSideStiffness: 1.45
+  maxSteerAngle: 30
+  steerRate: 150
+  gravityMultiplier: 2.5

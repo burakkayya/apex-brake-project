@@ -40,7 +40,7 @@ namespace ApexBrake.Tests.PlayMode
         {
             var b = _kit.Build(_kit.Straight(50f), _kit.Ramp(), _kit.Straight(50f));
             yield return new WaitForFixedUpdate();
-            float mid = 50f + (TrackPieceGeometry.RampTakeoff + TrackPieceGeometry.RampGapEnd) * 0.5f;
+            float mid = 50f + (TrackPieceGeometry.RampTakeoffArc + TrackPieceGeometry.RampGapEndArc) * 0.5f;
             foreach (float lat in new[] { -8f, 0f, 8f })
             {
                 Assert.IsFalse(TestTrackKit.RayDown(b.Path.PointAt(mid, lat), out _, TrackLayers.RoadMask), "road inside gap at lateral " + lat);
@@ -48,8 +48,30 @@ namespace ApexBrake.Tests.PlayMode
                 Assert.AreEqual(TrackLayers.Ground, g.collider.gameObject.layer);
             }
             // boşluktan önce ve sonra yol var
-            Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(50f + TrackPieceGeometry.RampTakeoff - 0.5f, 0f), out _, TrackLayers.RoadMask));
-            Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(50f + TrackPieceGeometry.RampGapEnd + 0.5f, 0f), out _, TrackLayers.RoadMask));
+            Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(50f + TrackPieceGeometry.RampTakeoffArc - 0.5f, 0f), out _, TrackLayers.RoadMask));
+            Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(50f + TrackPieceGeometry.RampGapEndArc + 0.5f, 0f), out _, TrackLayers.RoadMask));
+        }
+
+        [UnityTest]
+        public IEnumerator Surface_IsContinuous_NoWallOrHoleAtSeams()
+        {
+            var b = _kit.Build(_kit.Straight(30f), _kit.Ramp(), _kit.Straight(30f), _kit.Bump(), _kit.Corner(25f, true), _kit.Straight(30f, 3), _kit.Straight(30f));
+            yield return new WaitForFixedUpdate();
+            var path = b.Path;
+            float gap0 = 30f + TrackPieceGeometry.RampTakeoffArc, gap1 = 30f + TrackPieceGeometry.RampGapEndArc;
+            for (float d = 0.1f; d < path.TotalLength - 0.1f; d += 0.1f)
+            {
+                if (d > gap0 - 0.05f && d < gap1 + 0.05f) continue;
+                foreach (float lat in new[] { -6f, 0f, 6f })
+                {
+                    var p = path.PointAt(d, lat);
+                    Assert.IsTrue(TestTrackKit.RayDown(p, out var hit, TrackLayers.RoadMask), $"hole at d={d:F1} lat={lat}");
+                    Assert.AreEqual(p.y, hit.point.y, 0.03f, $"step at d={d:F1} lat={lat}");
+                    // 10 cm yukarıdan ileri doğru 1 m: yüzeyde duvar/kapak yok
+                    var fwd = path.ForwardAt(d);
+                    Assert.IsFalse(Physics.Raycast(p + Vector3.up * 0.1f, fwd, 0.6f, TrackLayers.RoadMask), $"wall at d={d:F1} lat={lat}");
+                }
+            }
         }
 
         [UnityTest]
@@ -57,12 +79,12 @@ namespace ApexBrake.Tests.PlayMode
         {
             var b = _kit.Build(_kit.Straight(50f), _kit.Ramp(), _kit.Straight(50f));
             yield return new WaitForFixedUpdate();
-            Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(50f + TrackPieceGeometry.RampTakeoff - 0.3f, 0f), out var hit, TrackLayers.RoadMask));
+            Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(50f + TrackPieceGeometry.RampTakeoffArc - 0.3f, 0f), out var hit, TrackLayers.RoadMask));
             Assert.GreaterOrEqual(hit.point.y, 1.2f);
             Assert.IsTrue(TestTrackKit.RayDown(b.Path.PointAt(30f, 0f), out var flat, TrackLayers.RoadMask));
             Assert.AreEqual(0f, flat.point.y, 0.02f);
             // kalkış açısı 12–15° civarı
-            float slopeDeg = b.Path.SlopeAt(50f + TrackPieceGeometry.RampTakeoff - 0.6f) * Mathf.Rad2Deg;
+            float slopeDeg = b.Path.SlopeAt(50f + TrackPieceGeometry.RampTakeoffArc - 0.6f) * Mathf.Rad2Deg;
             Assert.That(slopeDeg, Is.InRange(11f, 17f));
         }
 
@@ -170,7 +192,7 @@ namespace ApexBrake.Tests.PlayMode
             yield return null;
             Assert.AreEqual(0f, b.Path.SlopeAt(25f), 0.01f);
             Assert.Greater(b.Path.SlopeAt(50f + TrackPieceGeometry.RampApproach + TrackPieceGeometry.RampRise * 0.6f), 0.08f);
-            Assert.Less(b.Path.SlopeAt(50f + TrackPieceGeometry.RampGapEnd + 2f), 0f, "landing slopes down");
+            Assert.Less(b.Path.SlopeAt(50f + TrackPieceGeometry.RampGapEndArc + 2f), 0f, "landing slopes down");
         }
 
         [UnityTest]
