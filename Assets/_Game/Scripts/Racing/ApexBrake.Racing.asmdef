@@ -1,0 +1,21 @@
+{
+  "name": "ApexBrake.Racing",
+  "rootNamespace": "ApexBrake.Racing",
+  "references": [
+    "ApexBrake.Simulation",
+    "ApexBrake.Track",
+    "Unity.InputSystem",
+    "Unity.Cinemachine",
+    "Unity.TextMeshPro",
+    "Unity.Splines"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
