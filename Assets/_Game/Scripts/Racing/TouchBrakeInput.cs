@@ -3,12 +3,14 @@ using UnityEngine.InputSystem;
 
 namespace ApexBrake.Racing
 {
-    /// <summary>Herhangi bir parmak ekrandaysa (ya da fare/Space basılıysa) fren. Her karede yoklanır.</summary>
+    /// <summary>
+    /// Herhangi bir parmak ekrandaysa (Editor/masaüstünde sol fare tuşu ya da Space) fren.
+    /// Olay yerine her okumada yoklanır: yarış başlamadan basılı tutulan parmak doğru okunur,
+    /// bırakma olayı kaçsa bile takılı kalmaz. Arayüz üstündeki dokunma da frendir.
+    /// </summary>
     public sealed class TouchBrakeInput : MonoBehaviour
     {
-        public bool IsBraking { get; private set; }
-
-        void Update() => IsBraking = Poll();
+        public bool IsBraking => Poll();
 
         static bool Poll()
         {

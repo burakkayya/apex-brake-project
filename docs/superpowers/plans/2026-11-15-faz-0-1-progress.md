@@ -35,7 +35,13 @@ Kural: bir görev ancak burada `Task N: complete` satırı varsa bitmiştir. Dev
 - Ruling: Recipe_Graybox toplam 1109 m (plan aralığı 950–1100) — plan tarifi sabit ve sıra bozulmasın diye kısaltılmadı, sapma %0,8 — yanlışsa: bir Straight100 → Straight50 yapılır.
 - Ruling: Rampa/tümsek çizgisi düz; 2 m yükselti ve tümsek yalnızca görsel mesh (sim zaten yüksekliği bilmiyor); uçuş yayını CarView çizer.
 - Ruling: SplineContainer.Evaluate tanjantı yerel uzayda döndü ve Linear knot'ta sıfır — TrackPath.EvaluateWorld yerelde değerlendirip dünyaya çeviriyor, sıfır tanjantta komşu örnekten yön türetiyor.
-- Task 10: bekliyor.
+- Task 10 Step 1: tamam — CarController/CarView/RaceDebugHud, Car_Graybox prefab, Race_Graybox sahnesi (Editor menü: Apex Brake/Graybox/Sahneyi Üret), Build Settings'te tek sahne.
+- Task 10 Step 2: tamam — Editor'de Play: araç pisti takip ediyor, dokunmadan ilk virajda çakılıp eleniyor (HUD "CAKILDIN"), sanal Space ile fren çalışıyor, konsolda oyun hatası yok (yalnızca URP'nin ilgisiz `urtshader` uyarı/hatası).
+- Task 10 Step 3: tamam — 48 EditMode + 6 PlayMode geçti.
+- Ruling: Araç gövdesi ProBuilder yerine Unity primitifleri (cube/cylinder) — görsel fark yok, bu fazda gri kutu — yanlışsa: ProBuilder'a çevrilir.
+- Ruling: HUD metni ASCII (Turkce karakter yok) — TMP varsayılan fontu ç/ş/ğ/ı içermiyor — yanlışsa: ileride font asset genişletilir.
+- Ruling: Kamera Cinemachine 3 (CinemachineFollow offset 0,5,-9 + HardLookAt offset 0,2.6,0); FOV 60→68 CarView'da hıza bağlı.
+- Task 10 Step 4–6: bekliyor (Android derleme/telefon, kullanıcı oynanış testi).
 
 ## Kullanıcı onayı gerektirenler
 
