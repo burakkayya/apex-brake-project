@@ -29,7 +29,14 @@ Kural: bir görev ancak burada `Task N: complete` satırı varsa bitmiştir. Dev
 - Ruling: Testler `unity test` yerine `unity command test run --filter <TamAd>` ile koşuluyor — `unity test` açık Editor varken reddediyor ve Editor'ü kapatmak yerine açık Editor'ü kullanmak güvenli — yanlışsa: Editor kapatılıp `unity test` kullanılır.
 - Ruling: Task 7 `Respawn_NeverLandsInsideAnotherObstacle`: "o engelin Start'ından önceki ilk Straight" = ÇAKILAN engelden önceki ilk Straight (test 80'i bekliyor: 85'teki viraj için aradaki 5 m'lik düz) — yanlışsa: aradaki düz çok kısaysa yeniden doğma adaletsiz olur, tasarımda en az ~15 m düz bırakılmalı.
 - Ruling: Skid hızı kaybı Tick başı hızından hesaplanır (o Tick'te ivme uygulanmaz); kalkışta hız Tick başı hızına sabitlenir — testlerdeki 13.2 / 20.0 beklentileri için — yanlışsa: ± 0.16 m/s sapma.
-- Task 3: bekliyor (BuildScript + CI; telefon/CI onayı gerektirenler atlanacak).
+- Task 3 Step 1–2: tamam — `BuildScript.BuildAndroid()` yazıldı; Android hedefine geçildi; `build run` ile `Build/Android/ApexBrake.apk` (32 MB, IL2CPP ARM64 dev) başarıyla derlendi (21 dk).
+- Task 3 Step 3: atlandı — Android telefon bağlı değil (`adb devices` boş). Kullanıcı bağlayınca `adb install -r Build/Android/ApexBrake.apk`.
+- Task 3 Step 4: tamam — `.github/workflows/android.yml` (`unity ci init --target Android`; push main + workflow_dispatch; test + APK artifact). Gerekli secret'lar: UNITY_SERVICE_ACCOUNT_ID, UNITY_SERVICE_ACCOUNT_SECRET, UNITY_LICENSE_SERIAL — kullanıcı ekler.
+- Task 3 Step 5: commit yapıldı; push ve CI doğrulaması kullanıcı onayı/secret bekliyor.
+- Task 3: complete (cihaz, push ve CI yeşil doğrulaması hariç).
+- Ruling: `BuildAndroid()` yalnızca batchmode'da `EditorApplication.Exit(1)` çağırır; Editor'den çağrılırsa istisna fırlatır — açık Editor'ü kapatmamak için — yanlışsa: CI `unity build` kullandığı için etkilenmez.
+- Ruling: Derleme `unity command build run` ile açık Editor'den alındı (`script eval` içinden çağrı "scripts are compiling" ile reddedildi).
+- Ruling: CI iş akışı CLI iskeletinden; `android.yml` olarak yeniden adlandırıldı, tetikleyiciler plana göre daraltıldı.
 - Task 8: complete — SimClockTests 6/6 geçti; TouchBrakeInput cihazda Task 10 Step 4'te doğrulanacak.
 - Task 9: complete — PlayMode 6/6 geçti; gri kutu parçalar, Recipe_Graybox üretildi (17 parça, 1109,04 m).
 - Ruling: Recipe_Graybox toplam 1109 m (plan aralığı 950–1100) — plan tarifi sabit ve sıra bozulmasın diye kısaltılmadı, sapma %0,8 — yanlışsa: bir Straight100 → Straight50 yapılır.
@@ -41,7 +48,9 @@ Kural: bir görev ancak burada `Task N: complete` satırı varsa bitmiştir. Dev
 - Ruling: Araç gövdesi ProBuilder yerine Unity primitifleri (cube/cylinder) — görsel fark yok, bu fazda gri kutu — yanlışsa: ProBuilder'a çevrilir.
 - Ruling: HUD metni ASCII (Turkce karakter yok) — TMP varsayılan fontu ç/ş/ğ/ı içermiyor — yanlışsa: ileride font asset genişletilir.
 - Ruling: Kamera Cinemachine 3 (CinemachineFollow offset 0,5,-9 + HardLookAt offset 0,2.6,0); FOV 60→68 CarView'da hıza bağlı.
-- Task 10 Step 4–6: bekliyor (Android derleme/telefon, kullanıcı oynanış testi).
+- Task 10 Step 4: Android APK derlendi ama telefon yok → cihaz testi (60 fps, çoklu parmak, arka plan, basılı başlangıç) yapılmadı; kullanıcı telefonda doğrulayacak.
+- Task 10 Step 5: commit yapıldı; push kullanıcı onayı bekliyor.
+- Task 10 Step 6: Faz 1 kapısı — kullanıcı oynanış testi bekleniyor. DURULDU.
 
 ## Kullanıcı onayı gerektirenler
 
