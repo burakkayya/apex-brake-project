@@ -321,3 +321,34 @@ Faz 3 sonundaki kanıt olumsuzsa Faz 4'e geçilmez; mekanik yeniden ele alınır
 3. Faz 5 öncesi: Unity Cloud organizasyonu/projesi için onay.
 4. Faz 7 öncesi: LevelPlay hesabı ve uygulama kimlikleri.
 5. Faz 9 öncesi: Apple Developer ve Google Play geliştirici hesapları.
+
+---
+
+## 11. Revizyon (2026-11-16): Yanal fizik ve canlı yarış
+
+Kullanıcı Faz 2'yi görünce savrulmayı ve şerit takibini yapay buldu. Bu bölüm §3.2'nin viraj kısmını, §3.3'ün viraj kuralını, §3.5'i, §3.7'yi ve §5.1'i **geçersiz kılar**. Rampa kuralları ve Perfect Brake Boost (§3.4) aynı kalır.
+
+### 11.1 Savrulma merkezkaç kuvvetinden doğar [K]
+- Her aracın yanal konumu ve yanal hızı vardır. Virajda araca `hız² / yarıçap` kadar dışa doğru ivme etki eder.
+- Lastikler en çok `Tutunma` (ilk değer 12 m/s²) kadar yanal ivme sağlar. Yeterliyse araç çizgisinde kalır; yetmezse aradaki fark kadar dışa kayar.
+- Araç her an kendi çizgisine dönmeye çalışır [K]. Hız düşüp tutunma geri gelince çizgisine süzülür.
+- Sabit eşik (%100–115) ve sabit hız kaybı (%40) yoktur. Hız kaybı kaymanın kendisinden (lastik sürtünmesi) doğar.
+- **Eleme [K]:** yalnızca araç kayarak yolun dışına çıkarsa. Kariyerde eleme, multiplayer'da yeniden doğma, sonsuz modda tur sonu (§3.3'teki mod ayrımı aynı).
+- Viraj içi yapay hız tavanı kalkar. Yerine lastik yükü gelir **[Ö]**: lastik viraja ne kadar yüklenmişse araç o kadar az hızlanır.
+- **Viraj içinde fren [K]:** hızı düşürür ve toparlar, ama fren basılıyken yanal tutunma azalır (ilk değer ×0,8).
+- Yolun iki yanında 1,5 m banket vardır **[Ö]**; araç merkezi banketi de aşınca yoldan çıkmış sayılır.
+- Tümsek **[Ö]**: güvenli hızın üstünde araç hafifler (0,6 sn tutunma ×0,3 ve küçük bir yanal itme); %115'in üstünde kontrolsüz havalanıp çakılır.
+
+### 11.2 Temas ve sollama
+- **Temas [K]:** oyuncu botlara, botlar oyuncuya çarpabilir. Temas, şerit eşitliğine değil araçların gerçek konumuna (uzunluk 4,5 m, genişlik 2 m) bakar. Arkadan temasta arkadaki yavaşlar, öndeki itilir; yandan temasta araçlar birbirini yana iter ve ikisi de biraz hız kaybeder.
+- **Koruma [Ö]:** başka bir aracın çarpması kimseyi yolun dışına atamaz; çarpılan araç kısa süre yol kenarında tutulur. Yoldan yalnızca kendi hızın yüzünden çıkılır.
+- **Sollama [K]:** önünde yavaş bir araç varken yanında yer varsa araç kendiliğinden yana kayıp geçer; oyuncu ve botlar için aynı. Daralmalarda yer yoksa sıraya girilir.
+- "Her cihaz yalnızca kendi aracının tepkisini hesaplar" ilkesi (§3.5) çevrimiçi modlar için geçerliliğini korur.
+
+### 11.3 Botlar gerçek oyuncu gibi [K]
+- Oyuncuyla aynı fiziği kullanırlar; kayarlar, toparlarlar, yoldan çıkarlar.
+- Her yarışta farklı form; viraj başına değişen risk; ara sıra büyük hata, ara sıra kusursuz geçiş; karar gecikmesi (tepki süresi); startta farklı çıkış; kayarken panik freni; çizgide hafif gezinme.
+- Gizli lastik bant (geride kalana yardım) yoktur **[Ö]**.
+
+### 11.4 Dördüncü yükseltme: Lastik [K]
+Ana ekranın altındaki kartlar dört tanedir: **İvme, Maksimum Hız, Lastik, Gelir Çarpanı**. Lastik her seviyede `Tutunma`yı yaklaşık %3 artırır **[Ö]**. Dünya geçişinde İvme ve Maksimum Hız gibi Lastik de sıfırlanır **[Ö]**; Gelir Çarpanı kalır.
