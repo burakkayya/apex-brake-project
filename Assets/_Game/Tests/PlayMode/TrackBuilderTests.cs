@@ -55,6 +55,7 @@ namespace ApexBrake.Tests.PlayMode
         {
             var a = ScriptableObject.CreateInstance<TrackPieceAsset>();
             a.kind = kind; a.prefab = prefab; a.radius = radius; a.safeSpeedOverride = safe;
+            if (kind == PieceKind.Corner) a.turnSign = 1; // Faz 2b: virajda TurnSign zorunlu
             _cleanup.Add(a);
             return a;
         }

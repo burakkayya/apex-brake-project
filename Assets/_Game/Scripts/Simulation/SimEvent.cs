@@ -2,7 +2,7 @@ namespace ApexBrake.Simulation
 {
     public enum SimEventKind { CleanPass, Skid, Crash, FellShort, Takeoff, Landed, Respawned, Finished,
         PerfectBrake, GoodBrake, BoostStarted, BoostEnded,
-        RearHit, Bumped, SideHit }
+        RearHit, Bumped, SideHit, Light, Recovered }
 
     public readonly struct SimEvent
     {

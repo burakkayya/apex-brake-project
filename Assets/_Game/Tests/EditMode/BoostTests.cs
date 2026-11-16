@@ -10,7 +10,8 @@ namespace ApexBrake.Tests.EditMode
         const float Step = CarSim.Step;
 
         static TrackPieceDef S(float len) => new TrackPieceDef { Kind = PieceKind.Straight, Length = len };
-        static TrackPieceDef C(float len, float safe) => new TrackPieceDef { Kind = PieceKind.Corner, Length = len, SafeSpeed = safe, TurnSign = 1 };
+        // Viraj, varsayılan tutunmayla (12) sınırı 'safe' olacak yarıçapla: R = safe² / 12.
+        static TrackPieceDef C(float len, float safe) => new TrackPieceDef { Kind = PieceKind.Corner, Length = len, Radius = safe * safe / 12f, TurnSign = 1 };
         static TrackPieceDef B(float len, float safe) => new TrackPieceDef { Kind = PieceKind.Bump, Length = len, SafeSpeed = safe };
         static TrackPieceDef R(float len, float min, float safe, float gap) =>
             new TrackPieceDef { Kind = PieceKind.Ramp, Length = len, MinJumpSpeed = min, SafeSpeed = safe, GapLength = gap };
@@ -68,7 +69,6 @@ namespace ApexBrake.Tests.EditMode
         public void ReleaseJustBeforeEntry_At97Percent_EarnsPerfect()
         {
             var s = EarnPerfectOnA();
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(Has(s, SimEventKind.PerfectBrake));
             Assert.IsFalse(Has(s, SimEventKind.GoodBrake));
             Assert.AreEqual(1, s.PerfectCount);
@@ -79,7 +79,6 @@ namespace ApexBrake.Tests.EditMode
         public void ReleaseJustBeforeEntry_At90Percent_EarnsGood()
         {
             var s = Approach(TrackA(), 200f, 18f, 10, 4);
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(Has(s, SimEventKind.GoodBrake));
             Assert.IsFalse(Has(s, SimEventKind.PerfectBrake));
             Assert.AreEqual(1, s.GoodCount);
@@ -90,7 +89,6 @@ namespace ApexBrake.Tests.EditMode
         public void EntryBelow85Percent_EarnsNothing()
         {
             var s = Approach(TrackA(), 200f, 16f, 10, 4);
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(NoBrakeBonus(s));
         }
 
@@ -98,7 +96,6 @@ namespace ApexBrake.Tests.EditMode
         public void NeverBraked_InBand_EarnsNothing()
         {
             var s = Approach(TrackA(), 200f, 19.5f, 0, 0);
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(NoBrakeBonus(s));
         }
 
@@ -106,7 +103,6 @@ namespace ApexBrake.Tests.EditMode
         public void StillBrakingAtEntry_EarnsNothing()
         {
             var s = Approach(TrackA(), 200f, 19.4f, 10, 0, brakeOnEntry: true);
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(NoBrakeBonus(s));
         }
 
@@ -114,7 +110,6 @@ namespace ApexBrake.Tests.EditMode
         public void ReleasedTooEarly_EarnsNothing()
         {
             var s = Approach(TrackA(), 200f, 19.4f, 10, 29); // giriş bırakıştan 30 Tick sonra
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(NoBrakeBonus(s));
         }
 
@@ -122,18 +117,37 @@ namespace ApexBrake.Tests.EditMode
         public void BrakeTapShorterThan0_1s_EarnsNothing()
         {
             var s = Approach(TrackA(), 200f, 19.4f, 3, 4);
-            Assert.IsTrue(Has(s, SimEventKind.CleanPass));
             Assert.IsTrue(NoBrakeBonus(s));
         }
 
         [Test]
-        public void Skid_EarnsNothing()
+        public void AboveLimit_EarnsNothing_AndSkidDropsNothingLater()
         {
+            // %105 giriş: sınırın üstü boost kazanmaz; araç kayar (Skid) ve sonradan da boost başlamaz.
             var s = Approach(TrackA(), 200f, 21f, 10, 4);
-            Assert.IsTrue(Has(s, SimEventKind.Skid));
             Assert.IsTrue(NoBrakeBonus(s));
-            for (int i = 0; i < 300; i++) { s.Tick(false); Assert.IsFalse(Has(s, SimEventKind.BoostStarted)); }
+            bool skid = false;
+            for (int i = 0; i < 300; i++) { s.Tick(false); skid |= Has(s, SimEventKind.Skid); Assert.IsFalse(Has(s, SimEventKind.BoostStarted)); }
+            Assert.IsTrue(skid);
             Assert.AreEqual(0, s.PerfectCount + s.GoodCount);
+        }
+
+        [Test]
+        public void SkidInsideCorner_DropsEarnedBoost()
+        {
+            var s = EarnPerfectOnA();
+            Assert.IsTrue(Has(s, SimEventKind.PerfectBrake));
+            s.Tick(false);
+            s.AddLateralVel(-4f); // dışa itilir: lastik doyar, kayma başlar
+            bool skid = false;
+            for (int i = 0; i < 300; i++)
+            {
+                s.Tick(false);
+                skid |= Has(s, SimEventKind.Skid);
+                Assert.IsFalse(Has(s, SimEventKind.BoostStarted));
+            }
+            Assert.IsTrue(skid);
+            Assert.IsFalse(s.IsBoosting);
         }
 
         [Test]
@@ -246,11 +260,12 @@ namespace ApexBrake.Tests.EditMode
         [Test]
         public void CrashBeforeExit_DropsEarnedBoost()
         {
-            // Plan "Straight 1" ara parçası kullanıyordu; viraj içinde hız 20 iken 1 m üç Tick sürer ve boost kural gereği
-            // 260'ta (çıkışta) başlardı. Çıkış ile çakılmanın aynı Tick'te olması için ikinci viraj doğrudan bitişik (Ruling).
-            var l = new TrackLayout(new List<TrackPieceDef> { S(200), C(60, 20), C(60, 10), S(400) });
-            var s = Approach(l, 200f, 19.4f, 10, 4);
+            // Viraj içinde yoldan çıkan araç (Faz 2b: viraj girişinde çakılma yok; büyük yanal itmeyle yoldan çıkarılır).
+            var s = Approach(TrackA(), 200f, 19.4f, 10, 4);
             Assert.IsTrue(Has(s, SimEventKind.PerfectBrake));
+            for (int i = 0; i < 20; i++) s.Tick(false);
+            Assert.Less(s.Distance, 260f);
+            s.AddLateralVel(-60f);
             bool crashed = false;
             for (int i = 0; i < 500 && !crashed; i++)
             {
@@ -259,6 +274,7 @@ namespace ApexBrake.Tests.EditMode
                 Assert.IsFalse(Has(s, SimEventKind.BoostStarted));
             }
             Assert.IsTrue(crashed);
+            Assert.Less(s.Distance, 260f);
             Assert.IsFalse(s.IsBoosting);
             for (int i = 0; i < 100; i++) { s.Tick(false); Assert.IsFalse(Has(s, SimEventKind.BoostStarted)); }
         }

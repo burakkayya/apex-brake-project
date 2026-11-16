@@ -8,7 +8,7 @@ namespace ApexBrake.Track
     {
         public PieceKind kind;
         public GameObject prefab;       // kökte SplineContainer; çizgi yerel (0,0,0)'dan +Z yönünde başlar
-        public float radius;            // Corner: > 0 ise SafeSpeed buradan türetilir
+        public float radius;            // Corner: > 0 zorunlu; fizik bunu kullanır (SafeSpeed yalnızca nominal/HUD)
         public float safeSpeedOverride; // > 0 ise türetilen değeri ezer; Bump ve Ramp için zorunlu
         public float minJumpSpeed;      // Ramp
         public float gapLength;         // Ramp
@@ -29,6 +29,7 @@ namespace ApexBrake.Track
                 GapLength = kind == PieceKind.Ramp ? gapLength : 0f,
                 LaneCount = laneCount,
                 TurnSign = turnSign,
+                Radius = kind == PieceKind.Corner ? radius : 0f,
             };
         }
     }

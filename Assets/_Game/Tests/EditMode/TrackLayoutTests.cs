@@ -8,7 +8,7 @@ namespace ApexBrake.Tests.EditMode
     public sealed class TrackLayoutTests
     {
         static TrackPieceDef S(float len) => new TrackPieceDef { Kind = PieceKind.Straight, Length = len };
-        static TrackPieceDef C(float len, float safe = 20f) => new TrackPieceDef { Kind = PieceKind.Corner, Length = len, SafeSpeed = safe };
+        static TrackPieceDef C(float len, float radius = 40f, int turn = 1) => new TrackPieceDef { Kind = PieceKind.Corner, Length = len, Radius = radius, TurnSign = turn };
 
         static TrackLayout Basic() => new TrackLayout(new List<TrackPieceDef> { S(50), C(60), S(40) });
 
@@ -59,6 +59,16 @@ namespace ApexBrake.Tests.EditMode
             Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { null, S(10) }));
             Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(10), null, S(10) }));
             Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(10), null }));
+        }
+
+        [Test] public void Ctor_RejectsCornerWithoutRadius() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(10), C(60, 0f), S(10) }));
+        [Test] public void Ctor_RejectsCornerWithoutTurnSign() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(10), C(60, 40f, 0), S(10) }));
+
+        [Test]
+        public void HalfWidth_IsLaneCountTimes1_6()
+        {
+            Assert.AreEqual(8f, new TrackPieceDef { LaneCount = 5 }.HalfWidth, 1e-5f);
+            Assert.AreEqual(3.2f, new TrackPieceDef { LaneCount = 2 }.HalfWidth, 1e-5f);
         }
 
         [Test] public void Ctor_RejectsNonPositiveLength() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(0), S(10) }));

@@ -107,8 +107,15 @@ namespace ApexBrake.Simulation
                 if (i == 0 && p.LaneCount != LaneMap.HomeLanes)
                     throw new ArgumentException("Layout rule: first piece must have 5 lanes.");
                 if (!(p.Length > 0f)) throw new ArgumentException($"Layout rule: piece {i} Length must be > 0.");
-                if ((p.Kind == PieceKind.Corner || p.Kind == PieceKind.Bump) && !(p.SafeSpeed > 0f))
-                    throw new ArgumentException($"Layout rule: piece {i} ({p.Kind}) SafeSpeed must be > 0.");
+                if (p.Kind == PieceKind.Corner)
+                {
+                    if (!(p.Radius > 0f) || float.IsInfinity(p.Radius))
+                        throw new ArgumentException($"Layout rule: piece {i} (Corner) Radius must be > 0.");
+                    if (p.TurnSign != 1 && p.TurnSign != -1)
+                        throw new ArgumentException($"Layout rule: piece {i} (Corner) TurnSign must be -1 or +1.");
+                }
+                if (p.Kind == PieceKind.Bump && !(p.SafeSpeed > 0f))
+                    throw new ArgumentException($"Layout rule: piece {i} (Bump) SafeSpeed must be > 0.");
                 if (p.Kind == PieceKind.Ramp)
                 {
                     if (!(p.MinJumpSpeed > 0f && p.MinJumpSpeed < p.SafeSpeed))

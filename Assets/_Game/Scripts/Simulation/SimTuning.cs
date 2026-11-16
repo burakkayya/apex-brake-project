@@ -2,13 +2,23 @@ namespace ApexBrake.Simulation
 {
     public sealed class SimTuning
     {
-        public float SkidBand = 1.15f;          // güvenli hızın bu katına kadar savrulma, üstü çakılma
-        public float SkidSpeedLoss = 0.40f;
-        public float SkidDuration = 0.6f;       // sn, yalnızca görsel durum
         public float RespawnDelay = 1.5f;
         public float CornerRespawnRunUp = 15f;  // m
         public float RampRunUpMargin = 1.2f;
         public float Gravity = 20f;             // m/s², yalnızca görsel uçuş yayı için
+
+        // Yanal fizik (işaret: + = sağ)
+        public float LineStiffness = 16f;       // 1/s²; çizgiye dönüş yayı
+        public float LineDamping = 5.6f;        // 1/s; sönüm
+        public float BrakeGripFactor = 0.8f;    // fren basılıyken yanal tutunma çarpanı
+        public float SlideScrub = 1.5f;         // kayarken hız kaybı = bu × |yanal hız| (m/s²)
+        public float ShoulderWidth = 1.5f;      // m; banket
+        public float CarWidth = 2.0f;           // m
+        public float SkidStartSlip = 0.5f;      // m/s; kayma olayı eşiği
+        public float BumpLightGrip = 0.3f;      // tümsekte hafifleme çarpanı
+        public float BumpLightDuration = 0.6f;  // sn
+        public float BumpKick = 1.5f;           // m/s yanal itme
+        public float BumpCrashBand = 1.15f;     // tümsekte bu oranın üstü çakılma
 
         // Şeritler ve temas
         public float LaneWidth = 3.2f;          // m
@@ -16,7 +26,15 @@ namespace ApexBrake.Simulation
         public float CarLength = 4.5f;          // m; temas mesafesi
         public float RearHitSpeedFactor = 0.85f; // arkadan çarpanın hızı = öndekinin hızı × bu
         public float RearBump = 1.0f;           // m/s; öndekine itme
-        public float SideHitSpeedLoss = 0.15f;  // yan temasta iki tarafın hız kaybı
+        public float SideHitKick = 1.5f;        // m/s; yan temasta karşılıklı itme
+        public float SideHitSpeedLoss = 0.05f;  // yan temasta iki tarafın hız kaybı
+        public float ContactProtect = 0.5f;     // sn; çarpılan araç bu süre yoldan çıkamaz
+
+        // Sollama
+        public float OvertakeLook = 18f;        // m; öndeki araca bakış
+        public float OvertakeGap = 0.8f;        // m; geçerken yanal boşluk
+        public float OvertakeMinSpeedDiff = 1.0f; // m/s
+        public float OvertakeHold = 0.5f;       // sn; hedef değiştirmeden önce en kısa süre
 
         // Perfect Brake Boost
         public float BoostReleaseWindow = 0.5f; // sn; fren girişten en çok bu kadar önce bırakılmış olmalı

@@ -43,6 +43,10 @@ namespace ApexBrake.Simulation
                 if (target < def.MinJumpSpeed + 1f) target = def.MinJumpSpeed + 1f;
                 if (target > def.SafeSpeed) target = def.SafeSpeed;
             }
+            else if (def.Kind == PieceKind.Corner)
+            {
+                target = car.CornerLimit(def) * _profile.Risk;
+            }
             else
             {
                 target = def.SafeSpeed * _profile.Risk;

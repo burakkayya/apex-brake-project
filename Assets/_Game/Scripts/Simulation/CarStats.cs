@@ -5,5 +5,6 @@ namespace ApexBrake.Simulation
         public float Acceleration = 8f;
         public float TopSpeed = 30f;
         public float BrakeDecel = 25f;
+        public float Grip = 12f;
     }
 }

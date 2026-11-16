@@ -155,7 +155,7 @@ namespace ApexBrake.Racing
             else if (car.Phase == CarPhase.Skidding)
             {
                 float phaseTime = car.PhaseTime + alpha * CarSim.Step;
-                float yawWobble = 25f * Mathf.Sin(phaseTime / Mathf.Max(c.Tuning.SkidDuration, 0.01f) * Mathf.PI * 4f);
+                float yawWobble = 25f * Mathf.Sin(phaseTime / 0.6f /* Faz 2 SkidDuration; Faz 2b Görev 5 bu yalpayı siler */ * Mathf.PI * 4f);
                 localRot = Quaternion.Euler(0f, yawWobble, 0f);
             }
 

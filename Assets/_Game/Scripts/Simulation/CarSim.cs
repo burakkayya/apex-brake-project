@@ -1,7 +1,11 @@
+using System;
 using System.Collections.Generic;
 
 namespace ApexBrake.Simulation
 {
+    /// <summary>Tek aracın sabit adımlı simülasyonu: pist boyunca mesafe ve hız, yanal konum ve yanal hız.
+    /// Virajda merkezkaç ivmesi dışa iter; lastik, çizgiye dönmek için gereken yanal ivmeyi tutunma sınırına kadar
+    /// sağlar. Sınır aşılınca araç dışa kayar; yolun (banket dahil) dışına çıkarsa çakılır.</summary>
     public sealed class CarSim
     {
         public const float Step = 0.02f;
@@ -17,6 +21,7 @@ namespace ApexBrake.Simulation
             _layout = layout; _stats = stats; _tuning = tuning; _policy = policy;
         }
 
+        public CarStats Stats => _stats;
         public float Distance { get; private set; }
         public float Speed { get; private set; }
         public CarPhase Phase { get; private set; }
@@ -28,9 +33,25 @@ namespace ApexBrake.Simulation
         public int PerfectCount { get; private set; }
         public int GoodCount { get; private set; }
 
+        // Yanal durum (m, + = sağ)
+        public float Lateral { get; private set; }
+        public float LateralVel { get; private set; }
+        /// <summary>İzlenecek çizgi; RaceSim her Tick'ten önce yazar.</summary>
+        public float TargetLateral { get; set; }
+        /// <summary>Radyan = atan2(LateralVel, max(Speed, 1)); görsel için.</summary>
+        public float SlipAngle { get; private set; }
+        /// <summary>0..1 = |lastik yanal ivmesi| / kullanılabilir tutunma.</summary>
+        public float LateralLoad { get; private set; }
+        /// <summary>Lastik doymuş ve |LateralVel| ≥ SkidStartSlip.</summary>
+        public bool IsSliding { get; private set; }
+        public bool IsLight => _lightTicks > 0;
+        public bool IsEdgeProtected => _protectTicks > 0;
+
         int _phaseTicks;
         int _crashPiece;
         bool _crashWasRamp;
+        int _lightTicks;                      // tümsekte hafifleme kalan Tick
+        int _protectTicks;                    // yol kenarı koruması kalan Tick
 
         // Fren geçmişi (Perfect Brake Boost)
         int _holdTicks;                       // süren kesintisiz fren
@@ -46,17 +67,29 @@ namespace ApexBrake.Simulation
         float _boostFactor = 1f;
         int _boostTicksLeft;
 
-        internal void SetStateForTest(float distance, float speed)
+        /// <summary>Yanal durumu TargetLateral'a oturtur.</summary>
+        internal void SetStateForTest(float distance, float speed) => SetStateForTest(distance, speed, TargetLateral, TargetLateral);
+
+        internal void SetStateForTest(float distance, float speed, float lateral, float target)
         {
             Distance = distance; Speed = speed; Phase = CarPhase.Driving; _phaseTicks = 0; IsOut = false;
             _holdTicks = 0; _lastHoldTicks = 0; _ticksSinceRelease = int.MaxValue;
             ClearPending(); _boostTicksLeft = 0; _boostFactor = 1f;
+            Lateral = lateral; TargetLateral = target; LateralVel = 0f;
+            SlipAngle = 0f; LateralLoad = 0f; IsSliding = false; _lightTicks = 0; _protectTicks = 0;
         }
 
         internal void SetOutForTest()
         {
             Speed = 0f; SetPhase(CarPhase.Crashed); IsOut = true;
             ClearPending(); _boostTicksLeft = 0; _boostFactor = 1f;
+        }
+
+        /// <summary>Bu aracın güvenli viraj hızı: sqrt(Grip × Radius).</summary>
+        public float CornerLimit(TrackPieceDef corner)
+        {
+            float g = _stats.Grip * corner.Radius;
+            return g > 0f ? (float)Math.Sqrt(g) : 0f;
         }
 
         /// <summary>Speed = min(Speed, max); 0'ın altına inmez.</summary>
@@ -82,6 +115,22 @@ namespace ApexBrake.Simulation
             if (Speed < 0f) Speed = 0f;
         }
 
+        /// <summary>Temas itmesi. Sonlu olmayan değer yok sayılır.</summary>
+        public void AddLateralVel(float delta)
+        {
+            if (float.IsNaN(delta) || float.IsInfinity(delta)) return;
+            LateralVel += delta;
+            SlipAngle = (float)Math.Atan2(LateralVel, Math.Max(Speed, 1f));
+        }
+
+        /// <summary>Sonraki Tick'lerden bu süre boyunca araç yol kenarında tutulur (yoldan çıkamaz).</summary>
+        public void ProtectFromEdge(float seconds)
+        {
+            if (!(seconds > 0f)) return;
+            int ticks = (int)(seconds / Step + 0.5f);
+            if (ticks > _protectTicks) _protectTicks = ticks;
+        }
+
         /// <summary>Son Tick'in olaylarına ekler; PieceIndex = bulunduğu parça.</summary>
         public void RaiseEvent(SimEventKind kind) =>
             _events.Add(new SimEvent(kind, _layout.SpanAtDistance(Distance).Index, Distance));
@@ -99,20 +148,31 @@ namespace ApexBrake.Simulation
                 return;
             }
 
-            if (Phase == CarPhase.Skidding && _phaseTicks >= SkidTicks)
-                SetPhase(CarPhase.Driving);
+            // Bu Tick için hafifleme ve kenar koruması (Tick içinde verilen yenisi sonraki Tick'ten geçerli).
+            bool light = _lightTicks > 0;
+            if (light) _lightTicks--;
+            bool protect = _protectTicks > 0;
+            if (protect) _protectTicks--;
 
             float startSpeed = Speed;       // sınırlar bu hızla değerlendirilir
             float oldDistance = Distance;
             bool boostedThisTick = IsBoosting;
+            bool grounded = Phase != CarPhase.Airborne;
+            bool saturated = false;
 
-            if (Phase != CarPhase.Airborne)
+            if (grounded)
             {
+                saturated = StepLateral(braking, light);
+
                 float cap = _stats.TopSpeed * BoostFactor;
                 if (braking) Speed -= _stats.BrakeDecel * Step;
                 else if (Speed < cap)
                 {
-                    float accel = _stats.Acceleration * (IsBoosting ? _tuning.BoostAccelFactor : 1f);
+                    // Lastik viraja ne kadar yüklenmişse o kadar az hızlanır.
+                    float load = LateralLoad;
+                    float grip = 1f - load * load;
+                    float accel = _stats.Acceleration * (IsBoosting ? _tuning.BoostAccelFactor : 1f)
+                                  * (grip > 0f ? (float)Math.Sqrt(grip) : 0f);
                     Speed += accel * Step;
                     if (Speed > cap) Speed = cap;
                 }
@@ -122,7 +182,13 @@ namespace ApexBrake.Simulation
                     Speed -= _tuning.OverspeedDecay * Step;
                     if (Speed < cap) Speed = cap;
                 }
+                // Kayan lastik hız kaybettirir.
+                if (saturated) Speed -= _tuning.SlideScrub * Math.Abs(LateralVel) * Step;
                 if (Speed < 0f) Speed = 0f;
+            }
+            else
+            {
+                LateralLoad = 0f;
             }
 
             float newDistance = oldDistance + Speed * Step;
@@ -131,13 +197,12 @@ namespace ApexBrake.Simulation
             if (EvaluateBoundaries(oldDistance, newDistance, startSpeed, braking))
                 return; // çakılma
 
-            // Viraj içinde hız tavanı
-            if (Phase != CarPhase.Airborne)
+            if (grounded && Phase != CarPhase.Airborne)
             {
-                var span = _layout.SpanAtDistance(Distance);
-                if (span.Def.Kind == PieceKind.Corner && Distance < span.End && Speed > span.Def.SafeSpeed)
-                    Speed = span.Def.SafeSpeed;
+                if (CheckRoadEdge(protect)) return; // yoldan çıktı
+                UpdateSlideState(saturated);
             }
+            SlipAngle = (float)Math.Atan2(LateralVel, Math.Max(Speed, 1f));
 
             // Boost süresi: bu Tick'te boost'lu sürdüyse bir Tick düş.
             if (boostedThisTick && IsBoosting)
@@ -167,16 +232,87 @@ namespace ApexBrake.Simulation
             {
                 Distance = _layout.TotalLength;
                 SetPhase(CarPhase.Finished);
+                IsSliding = false;
                 if (IsBoosting) EndBoost();
                 ClearPending();
                 _events.Add(new SimEvent(SimEventKind.Finished, _layout.PieceCount - 1, Distance));
             }
         }
 
-        int SkidTicks => (int)(_tuning.SkidDuration / Step + 0.5f);
+        // Yanal adım; dönüş: lastik doydu mu.
+        bool StepLateral(bool braking, bool light)
+        {
+            var def = _layout.SpanAtDistance(Distance).Def;
+            float centrifugal = 0f;
+            if (def.Kind == PieceKind.Corner && Speed >= 1f && def.Radius > 0f)
+                centrifugal = -def.TurnSign * Speed * Speed / def.Radius;
+
+            float grip = _stats.Grip * (braking ? _tuning.BrakeGripFactor : 1f) * (light ? _tuning.BumpLightGrip : 1f);
+            if (!(grip > 0f)) grip = 0f;
+
+            float wanted = -centrifugal
+                           + _tuning.LineStiffness * (TargetLateral - Lateral)
+                           - _tuning.LineDamping * LateralVel;
+            float tyre = wanted > grip ? grip : (wanted < -grip ? -grip : wanted);
+            bool saturated = Math.Abs(wanted) > grip;
+            LateralLoad = grip > 0f ? Math.Abs(tyre) / grip : (saturated ? 1f : 0f);
+
+            LateralVel += (centrifugal + tyre) * Step;
+            Lateral += LateralVel * Step;
+            return saturated;
+        }
+
+        // true dönerse araç yoldan çıkıp çakıldı.
+        bool CheckRoadEdge(bool protect)
+        {
+            var span = _layout.SpanAtDistance(Distance);
+            float edge = span.Def.HalfWidth + _tuning.ShoulderWidth;
+            if (!(Math.Abs(Lateral) > edge)) return false;
+            if (protect)
+            {
+                float side = Lateral < 0f ? -1f : 1f;
+                Lateral = side * edge;
+                if (LateralVel * side > 0f) LateralVel = 0f;
+                return false;
+            }
+            IsSliding = false;
+            SlipAngle = (float)Math.Atan2(LateralVel, Math.Max(Speed, 1f));
+            // Viraj çıkışından sonraki düzde yoldan çıkan araç o virajda çıkmış sayılır (yeniden doğma viraj kuralıyla).
+            int piece = span.Index;
+            for (int k = span.Index; k >= 0; k--)
+            {
+                var kind = _layout.SpanAt(k).Def.Kind;
+                if (kind == PieceKind.Corner) { piece = k; break; }
+                if (kind != PieceKind.Straight) break;
+            }
+            Crash(piece, SimEventKind.Crash, false);
+            return true;
+        }
+
+        void UpdateSlideState(bool saturated)
+        {
+            IsSliding = saturated && Math.Abs(LateralVel) >= _tuning.SkidStartSlip;
+            if (Phase == CarPhase.Driving && IsSliding)
+            {
+                SetPhase(CarPhase.Skidding);
+                RaiseEvent(SimEventKind.Skid);
+                // Kayma etkin boost'u bitirir, bekleyeni düşürür.
+                ClearPending();
+                if (IsBoosting) EndBoost();
+            }
+            else if (Phase == CarPhase.Skidding && !saturated
+                     && Math.Abs(Lateral - TargetLateral) < 0.3f
+                     && Math.Abs(LateralVel) < _tuning.SkidStartSlip)
+            {
+                SetPhase(CarPhase.Driving);
+                RaiseEvent(SimEventKind.Recovered);
+            }
+        }
+
         int BoostTicks => (int)(_tuning.BoostDuration / Step + 0.5f);
         int ReleaseWindowTicks => (int)(_tuning.BoostReleaseWindow / Step + 0.5f);
         int MinHoldTicks => (int)(_tuning.MinBrakeHold / Step + 0.5f);
+        int LightTicks => (int)(_tuning.BumpLightDuration / Step + 0.5f);
 
         void UpdateBrakeHistory(bool braking)
         {
@@ -194,7 +330,7 @@ namespace ApexBrake.Simulation
             if (_ticksSinceRelease < int.MaxValue) _ticksSinceRelease++;
         }
 
-        // Temiz geçilen değerlendirme noktasında boost kazanılıp kazanılmadığına bakar.
+        // Değerlendirme noktasında boost kazanılıp kazanılmadığına bakar.
         void TryEarnBoost(int pieceIndex, float ratio, bool braking, float at, bool readyNow)
         {
             if (braking) return;
@@ -237,7 +373,16 @@ namespace ApexBrake.Simulation
                 if (span.Start > to) break;
                 var def = span.Def;
 
-                if (def.Kind == PieceKind.Corner || def.Kind == PieceKind.Bump)
+                if (def.Kind == PieceKind.Corner)
+                {
+                    // Viraj girişinde karar yok; yalnızca Perfect/Good değerlendirmesi (aracın kendi sınırına göre).
+                    if (span.Start > from && span.Start <= to)
+                    {
+                        float ratio = evalSpeed / CornerLimit(def);
+                        if (ratio <= 1f) TryEarnBoost(i, ratio, braking, span.Start, false);
+                    }
+                }
+                else if (def.Kind == PieceKind.Bump)
                 {
                     if (span.Start > from && span.Start <= to)
                     {
@@ -245,17 +390,14 @@ namespace ApexBrake.Simulation
                         if (ratio <= 1f)
                         {
                             _events.Add(new SimEvent(SimEventKind.CleanPass, i, span.Start));
-                            TryEarnBoost(i, ratio, braking, span.Start, def.Kind == PieceKind.Bump);
+                            TryEarnBoost(i, ratio, braking, span.Start, true);
                         }
-                        else if (ratio <= _tuning.SkidBand)
+                        else if (ratio <= _tuning.BumpCrashBand)
                         {
-                            evalSpeed *= 1f - _tuning.SkidSpeedLoss;
-                            Speed = evalSpeed;
-                            SetPhase(CarPhase.Skidding);
-                            _events.Add(new SimEvent(SimEventKind.Skid, i, span.Start));
-                            // Savrulma etkin boost'u bitirir, bekleyeni düşürür.
-                            ClearPending();
-                            if (IsBoosting) EndBoost();
+                            // Hafifleme: tutunma kısa süre azalır, küçük bir yanal itme.
+                            _lightTicks = LightTicks;
+                            LateralVel += _tuning.BumpKick * (Lateral < 0f ? -1f : 1f);
+                            _events.Add(new SimEvent(SimEventKind.Light, i, span.Start));
                         }
                         else
                         {
@@ -273,6 +415,7 @@ namespace ApexBrake.Simulation
                         if (evalSpeed < def.MinJumpSpeed) { Crash(i, SimEventKind.FellShort, true); return true; }
                         Speed = evalSpeed;
                         SetPhase(CarPhase.Airborne);
+                        IsSliding = false;
                         _events.Add(new SimEvent(SimEventKind.Takeoff, i, takeoff));
                         TryEarnBoost(i, evalSpeed / def.SafeSpeed, braking, takeoff, false);
                     }
@@ -292,6 +435,8 @@ namespace ApexBrake.Simulation
             _crashPiece = pieceIndex;
             _crashWasRamp = ramp;
             Speed = 0f;
+            IsSliding = false;
+            LateralLoad = 0f;
             // Çakılma etkin boost'u bitirir; kazanılmış ama başlamamış boost düşer.
             ClearPending();
             if (IsBoosting) EndBoost();
@@ -310,6 +455,12 @@ namespace ApexBrake.Simulation
             Distance = point;
             Speed = 0f;
             IsOut = false;
+            Lateral = TargetLateral;
+            LateralVel = 0f;
+            SlipAngle = 0f;
+            LateralLoad = 0f;
+            IsSliding = false;
+            _lightTicks = 0;
             SetPhase(CarPhase.Driving);
             _events.Add(new SimEvent(SimEventKind.Respawned, _layout.SpanAtDistance(point).Index, point));
         }

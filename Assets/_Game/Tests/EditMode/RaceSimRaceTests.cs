@@ -81,9 +81,10 @@ namespace ApexBrake.Tests.EditMode
         public void EliminatedCar_KeepsDistance_AndDropsWhenPassed()
         {
             var r = new RaceSim(Track(), new SimTuning(), new[] { P("A", 0), Bot(BotProfile.Master(), 2, 5) });
-            r.Racers[0].Car.SetStateForTest(99.9f, 30f); // 21.9'luk viraja 30 ile → çakılma
-            r.Tick(new[] { false, false });
+            r.Racers[0].Car.SetStateForTest(99.9f, 30f); // 21.9'luk viraja 30 ile (%137) → kayıp yoldan çıkar
+            for (int i = 0; i < 300 && !r.Racers[0].Car.IsOut; i++) r.Tick(new[] { false, false });
             Assert.IsTrue(r.Racers[0].Car.IsOut);
+            Assert.Greater(r.Racers[0].Car.Distance, r.Racers[1].Car.Distance, "precondition: eliminated ahead of the bot");
             float d = r.Racers[0].Car.Distance;
             Assert.AreEqual(1, r.Racers[0].Rank);
             bool dropped = false;
