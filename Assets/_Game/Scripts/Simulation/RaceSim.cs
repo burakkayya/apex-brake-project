@@ -25,6 +25,13 @@ namespace ApexBrake.Simulation
         public int Rank { get; internal set; }         // 1 tabanlı, her Tick güncellenir
         /// <summary>Gerçek yanal konum (= Car.Lateral), m, + = sağ.</summary>
         public float Lateral => Car.Lateral;
+        /// <summary>Önündeki yavaş aracı yandan geçmek için ev çizgisinden ayrıldı mı.</summary>
+        public bool IsOvertaking { get; internal set; }
+
+        // Sollama durumu (RaceSim yazar)
+        internal int OvertakeBlocker = -1;
+        internal float OvertakeTarget;
+        internal int TargetHoldTicks;          // hedef değişince bu kadar Tick yeniden değişmez
 
         internal BotBrain Brain { get; }
     }
@@ -49,6 +56,7 @@ namespace ApexBrake.Simulation
         bool[] _sideContacts, _nextSide;                         // [küçük indeks * n + büyük indeks]
         readonly List<int> _bumps = new List<int>();
         readonly float[] _prevDistance;                          // Tick başındaki mesafeler
+        readonly float[] _targets;
 
         public RaceSim(TrackLayout layout, SimTuning tuning, IReadOnlyList<RacerSetup> setups)
         {
@@ -77,6 +85,7 @@ namespace ApexBrake.Simulation
             _n = _racers.Length;
             _order = new int[_n];
             _prevDistance = new float[_n];
+            _targets = new float[_n];
             _rearContacts = new bool[_n * _n]; _nextRear = new bool[_n * _n];
             _sideContacts = new bool[_n * _n]; _nextSide = new bool[_n * _n];
             UpdateRank();
@@ -107,8 +116,9 @@ namespace ApexBrake.Simulation
         {
             TickCount++;
 
-            // (0) hedef çizgileri
-            for (int i = 0; i < _n; i++) _racers[i].Car.TargetLateral = HomeLine(i);
+            // (0) hedef çizgileri (ev çizgisi ya da sollama) — hepsi Tick'ten önce, aynı durumdan
+            for (int i = 0; i < _n; i++) _targets[i] = ChooseTarget(i);
+            for (int i = 0; i < _n; i++) _racers[i].Car.TargetLateral = _targets[i];
 
             // (1) fren kararları — hepsi Tick'ten önce, aynı durumdan
             var brake = new bool[_n];
@@ -137,6 +147,111 @@ namespace ApexBrake.Simulation
         }
 
         float HomeLine(int i) => LaneMap.LateralAt(_layout, _racers[i].HomeLane, _racers[i].Car.Distance, _tuning);
+
+        int HoldTicks => (int)(_tuning.OvertakeHold / CarSim.Step + 0.5f);
+
+        // Ev çizgisi; önde yavaş bir araç varsa ve yanında yer varsa onun yanı (sollama).
+        float ChooseTarget(int i)
+        {
+            var me = _racers[i];
+            var car = me.Car;
+            float home = HomeLine(i);
+            if (car.IsOut || car.Phase == CarPhase.Finished || car.Phase == CarPhase.Crashed)
+            {
+                me.IsOvertaking = false; me.OvertakeBlocker = -1; me.TargetHoldTicks = 0;
+                return home;
+            }
+            if (!InContact(i)) return me.IsOvertaking ? me.OvertakeTarget : home; // havada: karar yok
+
+            if (me.TargetHoldTicks > 0) me.TargetHoldTicks--;
+            if (me.IsOvertaking)
+            {
+                if (me.TargetHoldTicks > 0) return me.OvertakeTarget;
+                int b = me.OvertakeBlocker;
+                var bc = _racers[b].Car;
+                bool passed = !InContact(b) || car.Distance - bc.Distance >= _tuning.CarLength + 2f;
+                // Engel artık engel değilse (hızlandı) ve hâlâ öndeyse vazgeç.
+                bool gaveUp = !passed && bc.Distance - car.Distance >= _tuning.CarLength && !IsBlocker(i, b, home);
+                if (passed || gaveUp)
+                {
+                    me.IsOvertaking = false; me.OvertakeBlocker = -1; me.TargetHoldTicks = HoldTicks;
+                    return home;
+                }
+                // Seçilen yan yoldan taştıysa ya da başka bir araçla doldu ise yeniden seç; yer yoksa sürdür.
+                if (!CandidateValid(i, b, me.OvertakeTarget) && TryPickSide(i, b, home, out float t)
+                    && Math.Abs(t - me.OvertakeTarget) > 1e-3f)
+                {
+                    me.OvertakeTarget = t; me.TargetHoldTicks = HoldTicks;
+                }
+                return me.OvertakeTarget;
+            }
+
+            if (me.TargetHoldTicks == 0)
+            {
+                int b = FindBlocker(i, home);
+                if (b >= 0 && TryPickSide(i, b, home, out float t))
+                {
+                    me.IsOvertaking = true; me.OvertakeBlocker = b; me.OvertakeTarget = t; me.TargetHoldTicks = HoldTicks;
+                    return t;
+                }
+            }
+            return home;
+        }
+
+        // Öndeki 0 < ΔD ≤ OvertakeLook, ev çizgisine CarWidth + 0.4'ten yakın ve OvertakeMinSpeedDiff'ten yavaş araç mı.
+        bool IsBlocker(int i, int j, float home)
+        {
+            if (j == i || !InContact(j)) return false;
+            var me = _racers[i].Car; var o = _racers[j].Car;
+            float dD = o.Distance - me.Distance;
+            return dD > 0f && dD <= _tuning.OvertakeLook
+                && Math.Abs(o.Lateral - home) < _tuning.CarWidth + 0.4f
+                && o.Speed < me.Speed - _tuning.OvertakeMinSpeedDiff;
+        }
+
+        int FindBlocker(int i, float home)
+        {
+            int best = -1; float bestD = float.MaxValue;
+            for (int j = 0; j < _n; j++)
+            {
+                if (!IsBlocker(i, j, home)) continue;
+                float dD = _racers[j].Car.Distance - _racers[i].Car.Distance;
+                if (dD < bestD) { bestD = dD; best = j; }   // eşitlikte düşük indeks
+            }
+            return best;
+        }
+
+        // Engelin iki yanından geçerli olup ev çizgisine yakın olanı.
+        bool TryPickSide(int i, int blocker, float home, out float target)
+        {
+            float bl = _racers[blocker].Car.Lateral;
+            float off = _tuning.CarWidth + _tuning.OvertakeGap;
+            float left = bl - off, right = bl + off;
+            bool lv = CandidateValid(i, blocker, left), rv = CandidateValid(i, blocker, right);
+            if (lv && rv) target = Math.Abs(left - home) <= Math.Abs(right - home) ? left : right;
+            else if (lv) target = left;
+            else if (rv) target = right;
+            else { target = home; return false; }
+            return true;
+        }
+
+        bool CandidateValid(int i, int blocker, float cand)
+        {
+            var me = _racers[i].Car;
+            float hw = Math.Min(_layout.SpanAtDistance(me.Distance).Def.HalfWidth,
+                                _layout.SpanAtDistance(me.Distance + 20f).Def.HalfWidth);
+            if (Math.Abs(cand) > hw - 1.2f) return false;
+            for (int j = 0; j < _n; j++)
+            {
+                if (j == i || j == blocker || !InContact(j)) continue;
+                var o = _racers[j].Car;
+                // Geçiş çizgisinde, bize ya da engele 10 m'den yakın araç varsa yer yok.
+                bool near = Math.Abs(o.Distance - me.Distance) < 10f
+                    || (blocker >= 0 && Math.Abs(o.Distance - _racers[blocker].Car.Distance) < 10f);
+                if (near && Math.Abs(o.Lateral - cand) < _tuning.CarWidth) return false;
+            }
+            return true;
+        }
 
         bool InContact(int i)
         {
