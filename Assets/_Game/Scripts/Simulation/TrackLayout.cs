@@ -65,6 +65,28 @@ namespace ApexBrake.Simulation
             return false;
         }
 
+        /// <summary>Mesafeden SONRAKİ ilk değerlendirme noktası: viraj/tümsek Start'ı ya da rampa kalkışı.</summary>
+        public bool TryGetNextEvalPoint(float distance, out float evalDistance, out PieceSpan span)
+        {
+            for (int i = 0; i < _spans.Length; i++)
+            {
+                var s = _spans[i];
+                float eval;
+                if (s.Def.Kind == PieceKind.Corner || s.Def.Kind == PieceKind.Bump) eval = s.Start;
+                else if (s.Def.Kind == PieceKind.Ramp) eval = s.End - s.Def.GapLength;
+                else continue;
+                if (eval > distance)
+                {
+                    evalDistance = eval;
+                    span = s;
+                    return true;
+                }
+            }
+            evalDistance = 0f;
+            span = default;
+            return false;
+        }
+
         static void Validate(IReadOnlyList<TrackPieceDef> pieces)
         {
             if (pieces == null || pieces.Count == 0)
