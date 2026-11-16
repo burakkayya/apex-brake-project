@@ -42,7 +42,8 @@ namespace ApexBrake.Simulation
         public float SlipAngle { get; private set; }
         /// <summary>0..1 = |lastik yanal ivmesi| / kullanılabilir tutunma.</summary>
         public float LateralLoad { get; private set; }
-        /// <summary>Lastik doymuş ve |LateralVel| ≥ SkidStartSlip.</summary>
+        /// <summary>Lastik doymuş, |LateralVel| ≥ SkidStartSlip ve araç çizgisinden uzaklaşıyor (çizgiye dönerken ya da
+        /// şerit değiştirirken doymuş lastik kayma sayılmaz).</summary>
         public bool IsSliding { get; private set; }
         public bool IsLight => _lightTicks > 0;
         public bool IsEdgeProtected => _protectTicks > 0;
@@ -77,6 +78,12 @@ namespace ApexBrake.Simulation
             ClearPending(); _boostTicksLeft = 0; _boostFactor = 1f;
             Lateral = lateral; TargetLateral = target; LateralVel = 0f;
             SlipAngle = 0f; LateralLoad = 0f; IsSliding = false; _lightTicks = 0; _protectTicks = 0;
+        }
+
+        /// <summary>Aracı yanal olarak verilen çizgiye oturtur (yarış başı): Lateral = TargetLateral = lateral.</summary>
+        internal void PlaceOnLine(float lateral)
+        {
+            Lateral = lateral; TargetLateral = lateral; LateralVel = 0f; SlipAngle = 0f;
         }
 
         internal void SetOutForTest()
@@ -158,11 +165,15 @@ namespace ApexBrake.Simulation
             float oldDistance = Distance;
             bool boostedThisTick = IsBoosting;
             bool grounded = Phase != CarPhase.Airborne;
-            bool saturated = false;
+            bool saturated = false, sliding = false, scrubbing = false;
 
             if (grounded)
             {
                 saturated = StepLateral(braking, light);
+                // Doymuş lastik ancak araç çizgisinden uzaklaşırken kayar (sürtünür); çizgiye dönerken ya da şerit
+                // değiştirirken doymuş lastik yalnızca hızlanmayı keser.
+                scrubbing = saturated && LateralVel * (Lateral - TargetLateral) >= 0f;
+                sliding = scrubbing && Math.Abs(LateralVel) >= _tuning.SkidStartSlip;
 
                 float cap = _stats.TopSpeed * BoostFactor;
                 if (braking) Speed -= _stats.BrakeDecel * Step;
@@ -183,7 +194,7 @@ namespace ApexBrake.Simulation
                     if (Speed < cap) Speed = cap;
                 }
                 // Kayan lastik hız kaybettirir.
-                if (saturated) Speed -= _tuning.SlideScrub * Math.Abs(LateralVel) * Step;
+                if (scrubbing) Speed -= _tuning.SlideScrub * Math.Abs(LateralVel) * Step;
                 if (Speed < 0f) Speed = 0f;
             }
             else
@@ -200,7 +211,7 @@ namespace ApexBrake.Simulation
             if (grounded && Phase != CarPhase.Airborne)
             {
                 if (CheckRoadEdge(protect)) return; // yoldan çıktı
-                UpdateSlideState(saturated);
+                UpdateSlideState(saturated, sliding);
             }
             SlipAngle = (float)Math.Atan2(LateralVel, Math.Max(Speed, 1f));
 
@@ -289,9 +300,9 @@ namespace ApexBrake.Simulation
             return true;
         }
 
-        void UpdateSlideState(bool saturated)
+        void UpdateSlideState(bool saturated, bool sliding)
         {
-            IsSliding = saturated && Math.Abs(LateralVel) >= _tuning.SkidStartSlip;
+            IsSliding = sliding;
             if (Phase == CarPhase.Driving && IsSliding)
             {
                 SetPhase(CarPhase.Skidding);

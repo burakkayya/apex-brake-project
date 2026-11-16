@@ -23,20 +23,32 @@ namespace ApexBrake.Simulation
         public CarSim Car { get; }
         public int FinishTick { get; internal set; }   // bitirmediyse -1
         public int Rank { get; internal set; }         // 1 tabanlı, her Tick güncellenir
-        public float Lateral { get; internal set; }    // LaneMap.LateralAt sonucu, her Tick güncellenir
+        /// <summary>Gerçek yanal konum (= Car.Lateral), m, + = sağ.</summary>
+        public float Lateral => Car.Lateral;
 
         internal BotBrain Brain { get; }
     }
 
-    /// <summary>N aracı aynı sabit adımda yürütür; şerit içi teması çözer, yanal konumu ve sıralamayı tutar.</summary>
+    /// <summary>N aracı aynı sabit adımda yürütür; her aracın hedef çizgisini yazar, teması araçların gerçek
+    /// konumundan çözer ve sıralamayı tutar.</summary>
     public sealed class RaceSim
     {
+        // Yan temas bir kez başlayınca araçlar bu kadar (m) fazladan açılana dek sürer; yan yana sürtünen
+        // araçlar her Tick yeni bir çarpma saymaz.
+        const float SideContactRelease = 0.3f;
+        // Üst üste binmiş araçlar en çok bu yanal hızla (m/s, her biri) ve bu sürede (sn) ayrılır.
+        const float SeparateMaxSpeed = 1.5f;
+        const float SeparateTime = 0.25f;
+
         readonly TrackLayout _layout;
         readonly SimTuning _tuning;
         readonly Racer[] _racers;
         readonly int[] _order;                                   // sıralama/temas için yeniden kullanılan dizi
-        HashSet<int> _rearContacts = new HashSet<int>();         // önceki Tick'te temasta olan (arkadaki, öndeki) çiftleri
-        HashSet<int> _nextContacts = new HashSet<int>();
+        readonly int _n;
+        bool[] _rearContacts, _nextRear;                         // [arkadaki * n + öndeki]
+        bool[] _sideContacts, _nextSide;                         // [küçük indeks * n + büyük indeks]
+        readonly List<int> _bumps = new List<int>();
+        readonly float[] _prevDistance;                          // Tick başındaki mesafeler
 
         public RaceSim(TrackLayout layout, SimTuning tuning, IReadOnlyList<RacerSetup> setups)
         {
@@ -60,9 +72,21 @@ namespace ApexBrake.Simulation
                 var car = new CarSim(layout, stats, tuning, s.Policy);
                 var brain = s.Bot != null ? new BotBrain(s.Bot, layout, s.Seed) : null;
                 _racers[i] = new Racer(s.Name, s.HomeLane, car, brain);
+                car.PlaceOnLine(HomeLine(i));
             }
-            _order = new int[_racers.Length];
-            UpdateLateralAndRank();
+            _n = _racers.Length;
+            _order = new int[_n];
+            _prevDistance = new float[_n];
+            _rearContacts = new bool[_n * _n]; _nextRear = new bool[_n * _n];
+            _sideContacts = new bool[_n * _n]; _nextSide = new bool[_n * _n];
+            UpdateRank();
+        }
+
+        /// <summary>Test kancası: aracı mesafe d'ye, hız v ile, o noktadaki ev çizgisine oturtur.</summary>
+        internal void SetStateForTest(int i, float d, float v)
+        {
+            float line = LaneMap.LateralAt(_layout, _racers[i].HomeLane, d, _tuning);
+            _racers[i].Car.SetStateForTest(d, v, line, line);
         }
 
         public IReadOnlyList<Racer> Racers => _racers;
@@ -83,9 +107,12 @@ namespace ApexBrake.Simulation
         {
             TickCount++;
 
+            // (0) hedef çizgileri
+            for (int i = 0; i < _n; i++) _racers[i].Car.TargetLateral = HomeLine(i);
+
             // (1) fren kararları — hepsi Tick'ten önce, aynı durumdan
-            var brake = new bool[_racers.Length];
-            for (int i = 0; i < _racers.Length; i++)
+            var brake = new bool[_n];
+            for (int i = 0; i < _n; i++)
             {
                 var r = _racers[i];
                 brake[i] = r.IsBot
@@ -94,32 +121,27 @@ namespace ApexBrake.Simulation
             }
 
             // (2) araçlar
-            for (int i = 0; i < _racers.Length; i++)
+            for (int i = 0; i < _n; i++)
             {
                 var r = _racers[i];
+                _prevDistance[i] = r.Car.Distance;
                 r.Car.Tick(brake[i]);
                 if (r.FinishTick < 0 && r.Car.Phase == CarPhase.Finished) r.FinishTick = TickCount;
             }
 
             // (3) temas
-            ResolveRearContacts();
-            ResolveSideContacts();
+            ResolveContacts();
 
-            // (4) yanal konum ve sıralama
-            UpdateLateralAndRank();
+            // (4) sıralama
+            UpdateRank();
         }
+
+        float HomeLine(int i) => LaneMap.LateralAt(_layout, _racers[i].HomeLane, _racers[i].Car.Distance, _tuning);
 
         bool InContact(int i)
         {
             var c = _racers[i].Car;
             return !c.IsOut && (c.Phase == CarPhase.Driving || c.Phase == CarPhase.Skidding);
-        }
-
-        void LaneOf(int i, out int effectiveLane, out int laneCount)
-        {
-            var car = _racers[i].Car;
-            laneCount = _layout.SpanAtDistance(car.Distance).Def.LaneCount;
-            effectiveLane = LaneMap.EffectiveLane(_racers[i].HomeLane, laneCount);
         }
 
         // b, a'nın önünde mi? Mesafeler eşitse düşük indeksli öndedir.
@@ -129,70 +151,97 @@ namespace ApexBrake.Simulation
             return db > da || (db == da && b < a);
         }
 
-        void ResolveRearContacts()
+        void ResolveContacts()
         {
             // Önden arkaya: öndeki önce kendi önündekine göre sınırlanır, arkadaki onun yeni hızını görür.
             int n = SortByPosition(includeAll: false);
-            _nextContacts.Clear();
-            var bumps = new List<int>();
+            Array.Clear(_nextRear, 0, _nextRear.Length);
+            Array.Clear(_nextSide, 0, _nextSide.Length);
+            _bumps.Clear();
+            float sideZone = 0.6f * _tuning.CarLength;
+
             for (int fi = 0; fi < n; fi++)
             {
                 int a = _order[fi];
-                LaneOf(a, out int laneA, out int countA);
                 for (int li = 0; li < fi; li++)
                 {
-                    int b = _order[li];
-                    LaneOf(b, out int laneB, out int countB);
-                    if (laneA != laneB || countA != countB) continue;
-                    float gap = _racers[b].Car.Distance - _racers[a].Car.Distance;
-                    if (!(gap >= 0f && gap < _tuning.CarLength) || !IsAhead(b, a)) continue;
+                    int b = _order[li];                       // b, a'nın önünde (ya da eşit mesafede)
+                    var carA = _racers[a].Car; var carB = _racers[b].Car;
+                    float dD = carB.Distance - carA.Distance;  // ≥ 0
+                    float dL = Math.Abs(carB.Lateral - carA.Lateral);
+                    if (!(dD < _tuning.CarLength)) continue;
 
-                    _racers[a].Car.LimitSpeed(_racers[b].Car.Speed * _tuning.RearHitSpeedFactor);
-                    int key = a * LaneMap.HomeLanes + b;
-                    _nextContacts.Add(key);
-                    if (!_rearContacts.Contains(key))
+                    int lo = a < b ? a : b, hi = a < b ? b : a;
+                    int sideKey = lo * _n + hi;
+                    int key = a * _n + b;
+                    // Arkadan yaklaşan araç bir Tick'te yan bölgeye girse de (yüksek kapanma hızı) temas arkadandır;
+                    // arkadan temas, araçlar üst üste kaldıkça arkadan sürer.
+                    bool fromBehind = _rearContacts[key]
+                        || (!_sideContacts[sideKey] && _prevDistance[b] - _prevDistance[a] >= sideZone);
+                    if (dD < sideZone && !(fromBehind && dL < _tuning.CarWidth))
                     {
-                        _racers[a].Car.RaiseEvent(SimEventKind.RearHit);
-                        _racers[b].Car.RaiseEvent(SimEventKind.Bumped);
-                        bumps.Add(b);
+                        bool wasSide = _sideContacts[sideKey];
+                        if (dL < _tuning.CarWidth || (wasSide && dL < _tuning.CarWidth + SideContactRelease))
+                        {
+                            _nextSide[sideKey] = true;
+                            SideContact(lo, hi, !wasSide);
+                        }
+                        continue;
+                    }
+
+                    if (!(dL < _tuning.CarWidth)) continue;
+                    // Arkadan temas
+                    carA.LimitSpeed(carB.Speed * _tuning.RearHitSpeedFactor);
+                    _nextRear[key] = true;
+                    if (!_rearContacts[key])
+                    {
+                        carA.RaiseEvent(SimEventKind.RearHit);
+                        carB.RaiseEvent(SimEventKind.Bumped);
+                        _bumps.Add(b);
                     }
                 }
             }
-            foreach (int b in bumps) _racers[b].Car.AddSpeed(_tuning.RearBump);
+            foreach (int b in _bumps) _racers[b].Car.AddSpeed(_tuning.RearBump);
 
-            var t = _rearContacts; _rearContacts = _nextContacts; _nextContacts = t;
+            var t = _rearContacts; _rearContacts = _nextRear; _nextRear = t;
+            t = _sideContacts; _sideContacts = _nextSide; _nextSide = t;
         }
 
-        void ResolveSideContacts()
+        // lo < hi (indeks). Yanal eşitlikte düşük indeksli sola (−), diğeri sağa itilir.
+        void SideContact(int lo, int hi, bool isNew)
         {
-            for (int a = 0; a < _racers.Length; a++)
+            var cl = _racers[lo].Car; var ch = _racers[hi].Car;
+            float d = ch.Lateral - cl.Lateral;
+            float sh = d < 0f ? -1f : 1f;                     // hi'nin itildiği yön
+            float sl = -sh;
+
+            if (isNew)
             {
-                if (!InContact(a)) continue;
-                var carA = _racers[a].Car;
-                int skidPiece = -1;
-                foreach (var e in carA.Events)
-                    if (e.Kind == SimEventKind.Skid) { skidPiece = e.PieceIndex; break; }
-                if (skidPiece < 0) continue;
-
-                var def = _layout.SpanAt(skidPiece).Def;
-                if (def.TurnSign == 0) continue;
-                int spill = LaneMap.EffectiveLane(_racers[a].HomeLane, def.LaneCount) - def.TurnSign;
-                if (spill < 0 || spill >= def.LaneCount) continue;
-
-                for (int b = 0; b < _racers.Length; b++)
+                cl.AddLateralVel(sl * _tuning.SideHitKick);
+                ch.AddLateralVel(sh * _tuning.SideHitKick);
+                float keep = 1f - _tuning.SideHitSpeedLoss;
+                cl.ScaleSpeed(keep);
+                ch.ScaleSpeed(keep);
+                cl.RaiseEvent(SimEventKind.SideHit);
+                ch.RaiseEvent(SimEventKind.SideHit);
+            }
+            else
+            {
+                // Temas sürüyor: birbirine yaklaşan bağıl yanal hız sıfırlanır (ikisi ortalamaya çekilir);
+                // üst üste binmişlerse en çok SeparateMaxSpeed ile ayrılırlar. Konum hiç değiştirilmez.
+                float rel = (ch.LateralVel - cl.LateralVel) * sh; // > 0 = açılıyorlar
+                float overlap = _tuning.CarWidth - Math.Abs(d);
+                float wanted = overlap > 0f ? Math.Min(overlap / SeparateTime, 2f * SeparateMaxSpeed) : 0f;
+                if (rel < wanted)
                 {
-                    if (b == a || !InContact(b)) continue;
-                    LaneOf(b, out int laneB, out int countB);
-                    if (countB != def.LaneCount || laneB != spill) continue;
-                    if (!(Math.Abs(_racers[b].Car.Distance - carA.Distance) < _tuning.CarLength)) continue;
-
-                    float keep = 1f - _tuning.SideHitSpeedLoss;
-                    carA.ScaleSpeed(keep);
-                    _racers[b].Car.ScaleSpeed(keep);
-                    carA.RaiseEvent(SimEventKind.SideHit);
-                    _racers[b].Car.RaiseEvent(SimEventKind.SideHit);
+                    float fix = 0.5f * (wanted - rel);
+                    cl.AddLateralVel(sl * fix);
+                    ch.AddLateralVel(sh * fix);
                 }
             }
+            // Başka bir aracın çarpması kimseyi yolun dışına atamaz.
+            cl.ProtectFromEdge(_tuning.ContactProtect);
+            ch.ProtectFromEdge(_tuning.ContactProtect);
         }
 
         // _order'ı doldurur. includeAll: sıralama için herkes (önce bitirenler FinishTick'e göre, sonra mesafe);
@@ -200,7 +249,7 @@ namespace ApexBrake.Simulation
         int SortByPosition(bool includeAll)
         {
             int n = 0;
-            for (int i = 0; i < _racers.Length; i++)
+            for (int i = 0; i < _n; i++)
                 if (includeAll || InContact(i)) _order[n++] = i;
 
             // Kararlı, küçük N için ekleme sıralaması.
@@ -230,10 +279,8 @@ namespace ApexBrake.Simulation
             return IsAhead(x, y);
         }
 
-        void UpdateLateralAndRank()
+        void UpdateRank()
         {
-            for (int i = 0; i < _racers.Length; i++)
-                _racers[i].Lateral = LaneMap.LateralAt(_layout, _racers[i].HomeLane, _racers[i].Car.Distance, _tuning);
             int n = SortByPosition(includeAll: true);
             for (int k = 0; k < n; k++) _racers[_order[k]].Rank = k + 1;
         }

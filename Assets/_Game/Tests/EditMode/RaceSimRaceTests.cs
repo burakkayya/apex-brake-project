@@ -9,12 +9,14 @@ namespace ApexBrake.Tests.EditMode
     {
         static TrackPieceDef S(float len, int lanes = 5) => new TrackPieceDef { Kind = PieceKind.Straight, Length = len, LaneCount = lanes };
 
-        // Pist R (Task 3) + 2. parçadan sonra Straight 60 (3 şerit), rampadan sonraki düzden sonra Straight 60 (2 şerit).
+        // Pist R (Task 3) + 2. parçadan sonra Straight 60 (3 şerit), rampadan sonraki düzden sonra Straight 60 (2 şerit)
+        // ve ardından Straight 50 (Faz 2b: daralmadan sonra viraja düz parça; oyundaki tarif de böyle).
         // S100 [0,100], C60 [100,160], S100 [160,260], S60/3 [260,320], B12 [320,332], S50 [332,382], C40 [382,422],
-        // S100 [422,522], R40 [522,562], S100 [562,662], S60/2 [662,722], C60 [722,782], S100 [782,882]
+        // S100 [422,522], R40 [522,562], S100 [562,662], S60/2 [662,722], S50 [722,772], C60 [772,832], S100 [832,932]
         static TrackLayout Track()
         {
             var p = BotBrainTests.TrackRPieces();
+            p.Insert(9, S(50));
             p.Insert(9, S(60, 2));
             p.Insert(3, S(60, 3));
             return new TrackLayout(p);
@@ -46,9 +48,9 @@ namespace ApexBrake.Tests.EditMode
         public void Rank_OrdersByDistance()
         {
             var r = new RaceSim(Track(), new SimTuning(), new[] { P("A", 0), P("B", 2), P("C", 4) });
-            r.Racers[0].Car.SetStateForTest(10f, 0f);
-            r.Racers[1].Car.SetStateForTest(50f, 0f);
-            r.Racers[2].Car.SetStateForTest(30f, 0f);
+            r.SetStateForTest(0, 10f, 0f);
+            r.SetStateForTest(1, 50f, 0f);
+            r.SetStateForTest(2, 30f, 0f);
             r.Tick(new[] { true, true, true });
             Assert.AreEqual(3, r.Racers[0].Rank);
             Assert.AreEqual(1, r.Racers[1].Rank);
@@ -60,9 +62,9 @@ namespace ApexBrake.Tests.EditMode
         {
             var l = Track();
             var r = new RaceSim(l, new SimTuning(), new[] { P("A", 0), P("B", 2), P("C", 4) });
-            r.Racers[0].Car.SetStateForTest(l.TotalLength - 5f, 30f);
-            r.Racers[1].Car.SetStateForTest(l.TotalLength - 100f, 30f);
-            r.Racers[2].Car.SetStateForTest(l.TotalLength - 0.1f, 30f);
+            r.SetStateForTest(0, l.TotalLength - 5f, 30f);
+            r.SetStateForTest(1, l.TotalLength - 100f, 30f);
+            r.SetStateForTest(2, l.TotalLength - 0.1f, 30f);
             r.Tick(NoBrake);
             Assert.AreEqual(1, r.Racers[2].FinishTick);
             Assert.AreEqual(-1, r.Racers[0].FinishTick);
@@ -81,7 +83,7 @@ namespace ApexBrake.Tests.EditMode
         public void EliminatedCar_KeepsDistance_AndDropsWhenPassed()
         {
             var r = new RaceSim(Track(), new SimTuning(), new[] { P("A", 0), Bot(BotProfile.Master(), 2, 5) });
-            r.Racers[0].Car.SetStateForTest(99.9f, 30f); // 21.9'luk viraja 30 ile (%137) → kayıp yoldan çıkar
+            r.SetStateForTest(0, 99.9f, 30f); // 21.9'luk viraja 30 ile (%137) → kayıp yoldan çıkar
             for (int i = 0; i < 300 && !r.Racers[0].Car.IsOut; i++) r.Tick(new[] { false, false });
             Assert.IsTrue(r.Racers[0].Car.IsOut);
             Assert.Greater(r.Racers[0].Car.Distance, r.Racers[1].Car.Distance, "precondition: eliminated ahead of the bot");
@@ -145,12 +147,19 @@ namespace ApexBrake.Tests.EditMode
         public void Lateral_FollowsNarrowing()
         {
             var l = Track();
-            Assert.AreEqual(882f, l.TotalLength, 1e-3f);
+            Assert.AreEqual(932f, l.TotalLength, 1e-3f);
             Assert.AreEqual(2, l.SpanAtDistance(692f).Def.LaneCount);
             var r = new RaceSim(l, new SimTuning(), new[] { P("A", 4) });
-            r.Racers[0].Car.SetStateForTest(692f, 0f); // 2 şeritli parça [662,722] ortası
-            r.Tick(new[] { true });
-            Assert.AreEqual(1.6f, r.Racers[0].Lateral, 0.01f);
+            r.SetStateForTest(0, 620f, 25f); // 5 şeritli düz [562,662], ev çizgisi +6.4; daralma [662,722]'de +1.6
+            Assert.AreEqual(6.4f, r.Racers[0].Lateral, 0.01f);
+            while (r.Racers[0].Car.Distance < 692f)
+            {
+                r.Tick(new[] { false });
+                Assert.IsFalse(r.Racers[0].Car.IsOut, "left the road at " + r.Racers[0].Car.Distance);
+                Assert.AreEqual(r.Racers[0].Car.Lateral, r.Racers[0].Lateral);
+            }
+            Assert.AreEqual(1.6f, r.Racers[0].Lateral, 0.3f);
+            Assert.AreEqual(1.6f, r.Racers[0].Car.TargetLateral, 1e-4f);
         }
     }
 }

@@ -230,6 +230,21 @@ namespace ApexBrake.Tests.EditMode
         }
 
         [Test]
+        public void LaneChange_IsNotASlide()
+        {
+            // Hedef çizgi 2.8 m kayar (sollama): lastik doysa da araç çizgisine doğru gittiği için kayma yok, hız kaybı yok.
+            var s = Car(Open(), 100f, 30f, lateral: 0f, target: 2.8f);
+            for (int i = 0; i < 100; i++)
+            {
+                s.Tick(false);
+                Assert.IsFalse(Has(s, SimEventKind.Skid), "tick " + i);
+                Assert.IsFalse(s.IsSliding, "tick " + i);
+                Assert.GreaterOrEqual(s.Speed, 30f - 1e-4f, "tick " + i);
+            }
+            Assert.AreEqual(2.8f, s.Lateral, 0.1f);
+        }
+
+        [Test]
         public void OuterLaneTarget_AtLimit_StaysOnRoad()
         {
             var s = AtCorner(21.0f, lateral: -6.4f, target: -6.4f);
