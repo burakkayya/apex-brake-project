@@ -39,7 +39,9 @@ namespace ApexBrake.Editor
                 {
                     string id = (right ? "CornerR90_" : "CornerL90_") + name;
                     float r = radius;
-                    pieces[id] = MakePiece("Piece_" + id, PieceKind.Corner, ArcKnots(r, right), 0f, -1f, cornerMat, null, a => { a.radius = r; });
+                    int sign = right ? 1 : -1;
+                    pieces[id] = MakePiece("Piece_" + id, PieceKind.Corner, ArcKnots(r, right), 0f, -1f, cornerMat, null,
+                        a => { a.radius = r; a.turnSign = sign; });
                 }
             }
 
@@ -48,18 +50,48 @@ namespace ApexBrake.Editor
             pieces["Bump"] = MakePiece("Piece_Bump", PieceKind.Bump, StraightKnots(12f), 0f, 12f, bumpMat, go => AddBump(go, bumpMat),
                 a => { a.safeSpeedOverride = 20f; });
 
-            var recipe = LoadOrCreate<LevelRecipe>(LevelDir + "/Recipe_Graybox.asset");
-            recipe.pieces = new List<TrackPieceAsset>();
-            foreach (var key in new[]
+            // Daralma parçaları: 60 m düz; iki ucunda 16 m'den dar genişliğe 15 m'lik görsel kama.
+            foreach (var lanes in new[] { 3, 2 })
+            {
+                int n = lanes;
+                var narrowMat = Mat("Road_Narrow" + n, n == 3 ? new Color(0.45f, 0.38f, 0.55f) : new Color(0.55f, 0.32f, 0.55f));
+                pieces["Narrow" + n + "_60"] = MakePiece("Piece_Narrow" + n + "_60", PieceKind.Straight, StraightKnots(NarrowLength), 0f, NarrowLength,
+                    narrowMat, null, a => { a.laneCount = n; }, d => NarrowWidth(d, n * LaneWidth));
+            }
+
+            WriteRecipe(LevelDir + "/Recipe_Graybox.asset", pieces, new[]
             {
                 "Straight100", "CornerR90_R40", "Straight100", "Bump", "Straight50", "CornerL90_R25", "Straight100", "Ramp",
                 "Straight100", "CornerL90_R40", "Straight50", "CornerR90_R25", "Straight100", "Ramp", "Straight50", "CornerR90_R40", "Straight100",
-            })
-                recipe.pieces.Add(pieces[key]);
-            EditorUtility.SetDirty(recipe);
+            });
+            WriteRecipe(LevelDir + "/Recipe_Graybox_Race.asset", pieces, new[]
+            {
+                "Straight100", "CornerR90_R40", "Straight100", "Narrow3_60", "Straight50", "Bump", "Straight50", "CornerL90_R25",
+                "Straight100", "Ramp", "Straight100", "Narrow2_60", "Straight50", "CornerL90_R40", "Straight50", "CornerR90_R25",
+                "Straight100", "Ramp", "Straight50", "CornerR90_R40", "Straight100",
+            });
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[GrayboxPieceFactory] Parçalar ve Recipe_Graybox üretildi.");
+            Debug.Log("[GrayboxPieceFactory] Parçalar, Recipe_Graybox ve Recipe_Graybox_Race üretildi.");
+        }
+
+        const float LaneWidth = 3.2f;
+        const float NarrowLength = 60f;
+        const float NarrowWedge = 15f;
+
+        static float NarrowWidth(float d, float narrow)
+        {
+            if (d < NarrowWedge) return Mathf.Lerp(RoadWidth, narrow, d / NarrowWedge);
+            if (d > NarrowLength - NarrowWedge) return Mathf.Lerp(narrow, RoadWidth, (d - (NarrowLength - NarrowWedge)) / NarrowWedge);
+            return narrow;
+        }
+
+        static void WriteRecipe(string path, Dictionary<string, TrackPieceAsset> pieces, string[] keys)
+        {
+            var recipe = LoadOrCreate<LevelRecipe>(path);
+            recipe.pieces = new List<TrackPieceAsset>();
+            foreach (var key in keys) recipe.pieces.Add(pieces[key]);
+            EditorUtility.SetDirty(recipe);
         }
 
         // ---- çizgi tanımları -------------------------------------------------
@@ -85,7 +117,7 @@ namespace ApexBrake.Editor
         // ---- parça üretimi ---------------------------------------------------
 
         static TrackPieceAsset MakePiece(string assetName, PieceKind kind, BezierKnot[] knots, float roadFrom, float roadTo,
-            Material mat, System.Action<GameObject> decorate, System.Action<TrackPieceAsset> configure)
+            Material mat, System.Action<GameObject> decorate, System.Action<TrackPieceAsset> configure, System.Func<float, float> widthAt = null)
         {
             var go = new GameObject(assetName);
             var container = go.AddComponent<SplineContainer>();
@@ -96,7 +128,7 @@ namespace ApexBrake.Editor
 
             float length = spline.GetLength();
             float to = roadTo < 0f ? length : roadTo;
-            var mesh = BuildRoadMesh(spline, roadFrom, to);
+            var mesh = BuildRoadMesh(spline, roadFrom, to, widthAt ?? (_ => RoadWidth));
             string meshPath = $"{PrefabDir}/{assetName}.mesh.asset";
             AssetDatabase.DeleteAsset(meshPath);
             AssetDatabase.CreateAsset(mesh, meshPath);
@@ -115,22 +147,24 @@ namespace ApexBrake.Editor
             asset.kind = kind;
             asset.prefab = prefab;
             asset.radius = 0f; asset.safeSpeedOverride = 0f; asset.minJumpSpeed = 0f; asset.gapLength = 0f;
+            asset.laneCount = 5; asset.turnSign = 0;
             configure(asset);
             EditorUtility.SetDirty(asset);
             return asset;
         }
 
-        static Mesh BuildRoadMesh(Spline spline, float from, float to)
+        static Mesh BuildRoadMesh(Spline spline, float from, float to, System.Func<float, float> widthAt)
         {
-            float total = spline.GetLength();
             int segs = Mathf.Max(2, Mathf.CeilToInt((to - from) / 1f));
             var pts = new Vector3[segs + 1];
+            var widths = new float[segs + 1];
             for (int i = 0; i <= segs; i++)
             {
                 float d = Mathf.Lerp(from, to, i / (float)segs);
                 float t = spline.ConvertIndexUnit(d, PathIndexUnit.Distance, PathIndexUnit.Normalized);
                 spline.Evaluate(Mathf.Clamp01(t), out float3 p, out _, out _);
                 pts[i] = p;
+                widths[i] = widthAt(d);
             }
 
             var verts = new Vector3[(segs + 1) * 2];
@@ -140,8 +174,8 @@ namespace ApexBrake.Editor
                 Vector3 fwd = (i < segs ? pts[i + 1] - pts[i] : pts[i] - pts[i - 1]);
                 fwd.y = 0f; fwd.Normalize();
                 Vector3 right = Vector3.Cross(Vector3.up, fwd);
-                verts[i * 2] = pts[i] - right * (RoadWidth * 0.5f);
-                verts[i * 2 + 1] = pts[i] + right * (RoadWidth * 0.5f);
+                verts[i * 2] = pts[i] - right * (widths[i] * 0.5f);
+                verts[i * 2 + 1] = pts[i] + right * (widths[i] * 0.5f);
                 if (i < segs)
                 {
                     int a = i * 2, b = a + 1, c = a + 2, d2 = a + 3;

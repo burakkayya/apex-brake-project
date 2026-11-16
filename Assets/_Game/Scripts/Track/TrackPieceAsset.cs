@@ -12,6 +12,8 @@ namespace ApexBrake.Track
         public float safeSpeedOverride; // > 0 ise türetilen değeri ezer; Bump ve Ramp için zorunlu
         public float minJumpSpeed;      // Ramp
         public float gapLength;         // Ramp
+        public int laneCount = 5;       // 1, 2, 3 veya 5; yalnızca Straight 5'ten az olabilir
+        public int turnSign;            // Corner: -1 sola, +1 sağa; diğerleri 0
 
         public TrackPieceDef ToDef(float measuredLength)
         {
@@ -25,6 +27,8 @@ namespace ApexBrake.Track
                 SafeSpeed = kind == PieceKind.Straight ? 0f : safe,
                 MinJumpSpeed = kind == PieceKind.Ramp ? minJumpSpeed : 0f,
                 GapLength = kind == PieceKind.Ramp ? gapLength : 0f,
+                LaneCount = laneCount,
+                TurnSign = turnSign,
             };
         }
     }

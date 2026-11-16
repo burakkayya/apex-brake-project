@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 363d795a70887a143afcaed522037251, type: 3}
+  m_Name: Recipe_Graybox_Race
+  m_EditorClassIdentifier: ApexBrake.Track::ApexBrake.Track.LevelRecipe
+  pieces:
+  - {fileID: 11400000, guid: c5eb631069a8dca43bf57c90aa789b4e, type: 2}
+  - {fileID: 11400000, guid: 453e1ac62f1838e41b7adfbc78a50b58, type: 2}
+  - {fileID: 11400000, guid: c5eb631069a8dca43bf57c90aa789b4e, type: 2}
+  - {fileID: 11400000, guid: f90995e682b2fc749bfaecac1aa2e649, type: 2}
+  - {fileID: 11400000, guid: 3cefc5c799790b146b938e2286251b70, type: 2}
+  - {fileID: 11400000, guid: d54f31fce006d48448808e4242ec1c6b, type: 2}
+  - {fileID: 11400000, guid: 3cefc5c799790b146b938e2286251b70, type: 2}
+  - {fileID: 11400000, guid: 53e17cd8d5ccf7f4fb93d4d2bbfc1940, type: 2}
+  - {fileID: 11400000, guid: c5eb631069a8dca43bf57c90aa789b4e, type: 2}
+  - {fileID: 11400000, guid: a736d1bb8ee14364ea7b87ed6a5b9bb3, type: 2}
+  - {fileID: 11400000, guid: c5eb631069a8dca43bf57c90aa789b4e, type: 2}
+  - {fileID: 11400000, guid: 1e83afeaad031094b8f4dcbf0b62cd28, type: 2}
+  - {fileID: 11400000, guid: 3cefc5c799790b146b938e2286251b70, type: 2}
+  - {fileID: 11400000, guid: 496641c0fb37722479cbc212232792b5, type: 2}
+  - {fileID: 11400000, guid: 3cefc5c799790b146b938e2286251b70, type: 2}
+  - {fileID: 11400000, guid: 10c09aca8ccd73f479ca9f685f5fa4a2, type: 2}
+  - {fileID: 11400000, guid: c5eb631069a8dca43bf57c90aa789b4e, type: 2}
+  - {fileID: 11400000, guid: a736d1bb8ee14364ea7b87ed6a5b9bb3, type: 2}
+  - {fileID: 11400000, guid: 3cefc5c799790b146b938e2286251b70, type: 2}
+  - {fileID: 11400000, guid: 453e1ac62f1838e41b7adfbc78a50b58, type: 2}
+  - {fileID: 11400000, guid: c5eb631069a8dca43bf57c90aa789b4e, type: 2}

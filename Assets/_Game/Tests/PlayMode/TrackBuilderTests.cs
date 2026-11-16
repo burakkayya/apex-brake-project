@@ -162,6 +162,27 @@ namespace ApexBrake.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator Build_CopiesLaneCountAndTurnSign()
+        {
+            var s = MakeStraightPrefab(50f);
+            var c = MakeCornerPrefab(25f, false);
+            var wide = Asset(PieceKind.Straight, s);
+            var narrow = Asset(PieceKind.Straight, s);
+            narrow.laneCount = 3;
+            var corner = Asset(PieceKind.Corner, c, 25f);
+            corner.turnSign = -1;
+            var b = MakeBuilder(wide, narrow, corner, Asset(PieceKind.Straight, s));
+            b.Build();
+            Assert.AreEqual(5, b.Layout.SpanAt(0).Def.LaneCount);
+            Assert.AreEqual(3, b.Layout.SpanAt(1).Def.LaneCount);
+            Assert.AreEqual(0, b.Layout.SpanAt(1).Def.TurnSign);
+            Assert.AreEqual(5, b.Layout.SpanAt(2).Def.LaneCount);
+            Assert.AreEqual(-1, b.Layout.SpanAt(2).Def.TurnSign);
+            Assert.AreEqual(0, b.Layout.SpanAt(3).Def.TurnSign);
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator Build_InvalidRecipe_Throws()
         {
             var s = MakeStraightPrefab(50f);

@@ -18,3 +18,5 @@ MonoBehaviour:
   safeSpeedOverride: 0
   minJumpSpeed: 0
   gapLength: 0
+  laneCount: 5
+  turnSign: 1
