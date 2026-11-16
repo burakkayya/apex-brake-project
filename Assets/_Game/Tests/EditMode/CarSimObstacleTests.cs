@@ -135,12 +135,11 @@ namespace ApexBrake.Tests.EditMode
 
         [Test] public void MultipleBoundariesInOneTick_AllEvaluated()
         {
-            var l = new TrackLayout(new List<TrackPieceDef> { S(100), B(0.2f, 10), C(0.2f, 10), S(100) });
+            var l = new TrackLayout(new List<TrackPieceDef> { S(100), B(0.2f, 30), C(0.2f, 10), S(100) });
             var s = Sim(l, 99.9f, 30f);
             s.Tick(false);
-            Assert.IsTrue(Has(s, SimEventKind.Crash));
-            Assert.IsFalse(Has(s, SimEventKind.CleanPass));
-            Assert.AreEqual(1, s.Events.First(e => e.Kind == SimEventKind.Crash).PieceIndex);
+            Assert.IsTrue(s.Events.Any(e => e.Kind == SimEventKind.CleanPass && e.PieceIndex == 1));
+            Assert.IsTrue(s.Events.Any(e => e.Kind == SimEventKind.Crash && e.PieceIndex == 2));
         }
 
         [Test] public void LandingDirectlyIntoCorner_AppliesCornerRule()

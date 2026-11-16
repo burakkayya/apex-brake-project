@@ -53,6 +53,14 @@ namespace ApexBrake.Tests.EditMode
             Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(50), ramp, S(50) }));
         }
 
+        [Test]
+        public void Ctor_RejectsNullPiece_WithArgumentException()
+        {
+            Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { null, S(10) }));
+            Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(10), null, S(10) }));
+            Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(10), null }));
+        }
+
         [Test] public void Ctor_RejectsNonPositiveLength() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(0), S(10) }));
     }
 }

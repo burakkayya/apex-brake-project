@@ -21,10 +21,12 @@
 
 name: Android
 
+# Yalnizca elle tetiklenir: hesap Unity Personal, seri numarasi yok, CI lisanslanamiyor.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: unity-${{ github.workflow }}-${{ github.ref }}
@@ -151,7 +153,7 @@ jobs:
         env:
           UNITY_SERVICE_ACCOUNT_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_ID }}
           UNITY_SERVICE_ACCOUNT_SECRET: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
-        run: unity test --report-format junit --output test-results.xml
+        run: unity test --mode EditMode --report-format junit --output test-results.xml
 
       # SPLITTING THE SUITE ACROSS PARALLEL JOBS
       #

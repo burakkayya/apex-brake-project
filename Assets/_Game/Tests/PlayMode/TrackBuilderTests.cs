@@ -106,7 +106,25 @@ namespace ApexBrake.Tests.PlayMode
                 b.Path.Evaluate(d - 0.01f, out var p0, out _);
                 b.Path.Evaluate(d + 0.01f, out var p1, out _);
                 Assert.Less(Vector3.Distance(p0, p1), 0.05f, "boundary " + i);
+                b.Path.Evaluate(d - 0.01f, out _, out var r0);
+                b.Path.Evaluate(d + 0.01f, out _, out var r1);
+                Assert.Less(Vector3.Angle(r0 * Vector3.forward, r1 * Vector3.forward), 1f, "direction at boundary " + i);
             }
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator Build_CornerExit_RotatesNextPiece()
+        {
+            var c = MakeCornerPrefab(25f, true);
+            var s = MakeStraightPrefab(50f);
+            var b = MakeBuilder(Asset(PieceKind.Straight, s), Asset(PieceKind.Corner, c, 25f), Asset(PieceKind.Straight, s));
+            b.Build();
+            b.Path.Evaluate(0f, out _, out var startRot);
+            var last = b.Layout.SpanAt(2);
+            b.Path.Evaluate((last.Start + last.End) * 0.5f, out _, out var midRot);
+            float angle = Vector3.Angle(startRot * Vector3.forward, midRot * Vector3.forward);
+            Assert.AreEqual(90f, angle, 1f);
             yield return null;
         }
 

@@ -69,6 +69,8 @@ namespace ApexBrake.Simulation
         {
             if (pieces == null || pieces.Count == 0)
                 throw new ArgumentException("Layout rule: piece list must not be empty.");
+            for (int i = 0; i < pieces.Count; i++)
+                if (pieces[i] == null) throw new ArgumentException($"Layout rule: piece {i} must not be null.");
             if (pieces[0].Kind != PieceKind.Straight)
                 throw new ArgumentException("Layout rule: first piece must be a Straight.");
             if (pieces[pieces.Count - 1].Kind != PieceKind.Straight)
@@ -76,7 +78,6 @@ namespace ApexBrake.Simulation
             for (int i = 0; i < pieces.Count; i++)
             {
                 var p = pieces[i];
-                if (p == null) throw new ArgumentException($"Layout rule: piece {i} must not be null.");
                 if (!(p.Length > 0f)) throw new ArgumentException($"Layout rule: piece {i} Length must be > 0.");
                 if ((p.Kind == PieceKind.Corner || p.Kind == PieceKind.Bump) && !(p.SafeSpeed > 0f))
                     throw new ArgumentException($"Layout rule: piece {i} ({p.Kind}) SafeSpeed must be > 0.");

@@ -9,7 +9,7 @@ namespace ApexBrake.Simulation
         /// <summary>Bu karede atılacak Tick sayısı. Artan süre biriktirilir; uzun duraklamada fazlalık atılır.</summary>
         public int Advance(float frameDeltaSeconds)
         {
-            if (float.IsNaN(frameDeltaSeconds) || frameDeltaSeconds < 0f) frameDeltaSeconds = 0f;
+            if (float.IsNaN(frameDeltaSeconds) || float.IsInfinity(frameDeltaSeconds) || frameDeltaSeconds < 0f) frameDeltaSeconds = 0f;
             _accumulator += frameDeltaSeconds;
             // Kayan nokta birikimi yüzünden 0.02'nin tam katlarında bir Tick kaçmasın.
             int ticks = (int)((_accumulator + 1e-6f) / CarSim.Step);

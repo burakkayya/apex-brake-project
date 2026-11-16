@@ -42,6 +42,14 @@ namespace ApexBrake.Tests.EditMode
         }
 
         [Test]
+        public void Advance_PositiveInfinity_ReturnsZero_AndClockStillWorks()
+        {
+            var c = new SimClock();
+            Assert.AreEqual(0, c.Advance(float.PositiveInfinity));
+            Assert.AreEqual(1, c.Advance(0.02f));
+        }
+
+        [Test]
         public void Alpha_IsFractionOfStep()
         {
             var c = new SimClock();

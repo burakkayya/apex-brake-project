@@ -163,10 +163,11 @@ namespace ApexBrake.Simulation
         {
             var span = _layout.SpanAt(_crashPiece);
             float point;
+            float takeoff = 0f, runUp = 0f;
             if (_crashWasRamp)
             {
-                float takeoff = span.End - span.Def.GapLength;
-                float runUp = span.Def.MinJumpSpeed * span.Def.MinJumpSpeed / (2f * _stats.Acceleration) * _tuning.RampRunUpMargin;
+                takeoff = span.End - span.Def.GapLength;
+                runUp = span.Def.MinJumpSpeed * span.Def.MinJumpSpeed / (2f * _stats.Acceleration) * _tuning.RampRunUpMargin;
                 point = takeoff - runUp;
             }
             else
@@ -175,18 +176,21 @@ namespace ApexBrake.Simulation
             }
             if (point < 0f) point = 0f;
 
-            // Başka bir engelin içine düşüyorsa, çakılan engelden önceki ilk düz parçanın başına çek.
-            var at = _layout.SpanAtDistance(point);
-            if (at.Def.Kind != PieceKind.Straight && at.Index != _crashPiece)
+            // Nokta başka bir engelin içine düşüyorsa ya da (rampada) kalkışa kadar koşu mesafesi yetmiyorsa,
+            // çakılan engelden geriye doğru bir önceki düz parçanın başına çek; koşul sağlanana dek yinele.
+            int cursor = _crashPiece - 1;
+            while (true)
             {
-                for (int i = _crashPiece - 1; i >= 0; i--)
-                {
-                    var prev = _layout.SpanAt(i);
-                    if (prev.Def.Kind == PieceKind.Straight) return prev.Start;
-                }
-                return 0f;
+                var at = _layout.SpanAtDistance(point);
+                bool insideOther = at.Def.Kind != PieceKind.Straight && at.Index != _crashPiece;
+                bool shortRunUp = _crashWasRamp && takeoff - point < runUp - 1e-4f;
+                if (!insideOther && !shortRunUp) return point;
+
+                while (cursor >= 0 && _layout.SpanAt(cursor).Def.Kind != PieceKind.Straight) cursor--;
+                if (cursor < 0) return 0f;
+                point = _layout.SpanAt(cursor).Start;
+                cursor--;
             }
-            return point;
         }
 
         void SetPhase(CarPhase p) { Phase = p; _phaseTicks = 0; }

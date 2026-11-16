@@ -106,6 +106,34 @@ namespace ApexBrake.Tests.EditMode
         }
 
         [Test]
+        public void Respawn_Ramp_WalksBackUntilRunUpFits()
+        {
+            // S100 [0,100], C30 [100,130], S5 [130,135], Ramp20 [135,155] (kalkış 143), S100
+            var l = new TrackLayout(new List<TrackPieceDef> { S(100), C(30, 20), S(5), R(20, 18, 26, 12), S(100) });
+            const float takeoff = 143f;
+            float runUp = 18f * 18f / (2f * 8f) * 1.2f; // 24.3
+            var s = Sim(l, CrashPolicy.Respawn, takeoff - 0.1f, 17f);
+            s.Tick(false);
+            Assert.IsTrue(Has(s, SimEventKind.FellShort));
+            bool respawned = false;
+            for (int i = 0; i < 75 && !respawned; i++) { s.Tick(false); respawned = Has(s, SimEventKind.Respawned); }
+            Assert.IsTrue(respawned);
+            Assert.AreEqual(PieceKind.Straight, l.SpanAtDistance(s.Distance).Def.Kind);
+            Assert.GreaterOrEqual(takeoff - s.Distance, runUp - 0.01f);
+            Assert.Less(s.Distance, 100f);
+
+            bool takeoffSeen = false, landed = false; int fellShort = 0;
+            for (int i = 0; i < 3000 && !landed; i++)
+            {
+                s.Tick(false);
+                takeoffSeen |= Has(s, SimEventKind.Takeoff);
+                landed |= Has(s, SimEventKind.Landed);
+                if (Has(s, SimEventKind.FellShort)) fellShort++;
+            }
+            Assert.IsTrue(takeoffSeen); Assert.IsTrue(landed); Assert.AreEqual(0, fellShort);
+        }
+
+        [Test]
         public void Respawn_IsNotOut()
         {
             var s = Sim(TrackA(), CrashPolicy.Respawn, 99.9f, 30f);
