@@ -23,14 +23,34 @@ namespace ApexBrake.Simulation
         public float PhaseTime => _phaseTicks * Step;
         public bool IsOut { get; private set; }
         public IReadOnlyList<SimEvent> Events => _events;
+        public bool IsBoosting => _boostTicksLeft > 0;
+        public float BoostFactor => IsBoosting ? _boostFactor : 1f;
+        public int PerfectCount { get; private set; }
+        public int GoodCount { get; private set; }
 
         int _phaseTicks;
         int _crashPiece;
         bool _crashWasRamp;
 
+        // Fren geçmişi (Perfect Brake Boost)
+        int _holdTicks;                       // süren kesintisiz fren
+        int _lastHoldTicks;                   // son bırakılan frenin süresi
+        int _ticksSinceRelease = int.MaxValue; // son bırakıştan bu yana (bırakış Tick'i 1)
+
+        // Kazanılmış, henüz başlamamış boost
+        float _pendingFactor;                 // 0 = yok
+        int _pendingPiece = -1;
+        bool _pendingReady;
+
+        // Etkin boost
+        float _boostFactor = 1f;
+        int _boostTicksLeft;
+
         internal void SetStateForTest(float distance, float speed)
         {
             Distance = distance; Speed = speed; Phase = CarPhase.Driving; _phaseTicks = 0; IsOut = false;
+            _holdTicks = 0; _lastHoldTicks = 0; _ticksSinceRelease = int.MaxValue;
+            ClearPending(); _boostTicksLeft = 0; _boostFactor = 1f;
         }
 
         public void Tick(bool braking)
@@ -38,6 +58,7 @@ namespace ApexBrake.Simulation
             _events.Clear();
             if (Phase == CarPhase.Finished || IsOut) return;
             _phaseTicks++;
+            UpdateBrakeHistory(braking);
 
             if (Phase == CarPhase.Crashed)
             {
@@ -50,19 +71,31 @@ namespace ApexBrake.Simulation
 
             float startSpeed = Speed;       // sınırlar bu hızla değerlendirilir
             float oldDistance = Distance;
+            bool boostedThisTick = IsBoosting;
 
             if (Phase != CarPhase.Airborne)
             {
+                float cap = _stats.TopSpeed * BoostFactor;
                 if (braking) Speed -= _stats.BrakeDecel * Step;
-                else Speed += _stats.Acceleration * Step;
+                else if (Speed < cap)
+                {
+                    float accel = _stats.Acceleration * (IsBoosting ? _tuning.BoostAccelFactor : 1f);
+                    Speed += accel * Step;
+                    if (Speed > cap) Speed = cap;
+                }
+                else if (Speed > cap)
+                {
+                    // Tavanın üstündeki fazla hız (boost bitince) yavaşça erir; tavanın altına inmez.
+                    Speed -= _tuning.OverspeedDecay * Step;
+                    if (Speed < cap) Speed = cap;
+                }
                 if (Speed < 0f) Speed = 0f;
-                if (Speed > _stats.TopSpeed) Speed = _stats.TopSpeed;
             }
 
             float newDistance = oldDistance + Speed * Step;
             Distance = newDistance;
 
-            if (EvaluateBoundaries(oldDistance, newDistance, startSpeed))
+            if (EvaluateBoundaries(oldDistance, newDistance, startSpeed, braking))
                 return; // çakılma
 
             // Viraj içinde hız tavanı
@@ -73,18 +106,96 @@ namespace ApexBrake.Simulation
                     Speed = span.Def.SafeSpeed;
             }
 
+            // Boost süresi: bu Tick'te boost'lu sürdüyse bir Tick düş.
+            if (boostedThisTick && IsBoosting)
+            {
+                _boostTicksLeft--;
+                if (_boostTicksLeft == 0) EndBoost();
+            }
+
+            // Kazanılmış boost engelden çıkınca başlar: viraj → End; tümsek → hemen; rampa → iniş.
+            if (_pendingFactor > 0f)
+            {
+                if (!_pendingReady)
+                {
+                    var p = _layout.SpanAt(_pendingPiece);
+                    if (p.Def.Kind == PieceKind.Corner && Distance >= p.End) _pendingReady = true;
+                }
+                if (_pendingReady)
+                {
+                    _boostFactor = _pendingFactor;
+                    _boostTicksLeft = BoostTicks;
+                    _events.Add(new SimEvent(SimEventKind.BoostStarted, _pendingPiece, Distance));
+                    ClearPending();
+                }
+            }
+
             if (Distance >= _layout.TotalLength)
             {
                 Distance = _layout.TotalLength;
                 SetPhase(CarPhase.Finished);
+                if (IsBoosting) EndBoost();
+                ClearPending();
                 _events.Add(new SimEvent(SimEventKind.Finished, _layout.PieceCount - 1, Distance));
             }
         }
 
         int SkidTicks => (int)(_tuning.SkidDuration / Step + 0.5f);
+        int BoostTicks => (int)(_tuning.BoostDuration / Step + 0.5f);
+        int ReleaseWindowTicks => (int)(_tuning.BoostReleaseWindow / Step + 0.5f);
+        int MinHoldTicks => (int)(_tuning.MinBrakeHold / Step + 0.5f);
+
+        void UpdateBrakeHistory(bool braking)
+        {
+            if (braking)
+            {
+                _holdTicks++;
+                return;
+            }
+            if (_holdTicks > 0)
+            {
+                _lastHoldTicks = _holdTicks;
+                _holdTicks = 0;
+                _ticksSinceRelease = 0;
+            }
+            if (_ticksSinceRelease < int.MaxValue) _ticksSinceRelease++;
+        }
+
+        // Temiz geçilen değerlendirme noktasında boost kazanılıp kazanılmadığına bakar.
+        void TryEarnBoost(int pieceIndex, float ratio, bool braking, float at, bool readyNow)
+        {
+            if (braking) return;
+            if (_ticksSinceRelease > ReleaseWindowTicks || _lastHoldTicks < MinHoldTicks) return;
+            float factor;
+            if (ratio >= _tuning.PerfectBandMin && ratio <= 1f)
+            {
+                factor = _tuning.PerfectBoostFactor;
+                PerfectCount++;
+                _events.Add(new SimEvent(SimEventKind.PerfectBrake, pieceIndex, at));
+            }
+            else if (ratio >= _tuning.GoodBandMin && ratio < _tuning.PerfectBandMin)
+            {
+                factor = _tuning.GoodBoostFactor;
+                GoodCount++;
+                _events.Add(new SimEvent(SimEventKind.GoodBrake, pieceIndex, at));
+            }
+            else return;
+            _pendingFactor = factor;
+            _pendingPiece = pieceIndex;
+            _pendingReady = readyNow;
+        }
+
+        void ClearPending() { _pendingFactor = 0f; _pendingPiece = -1; _pendingReady = false; }
+
+        void EndBoost()
+        {
+            _boostTicksLeft = 0;
+            _boostFactor = 1f;
+            _events.Add(new SimEvent(SimEventKind.BoostEnded, _layout.SpanAtDistance(Distance).Index, Distance));
+        }
 
         // true dönerse araç çakıldı (değerlendirme durur).
-        bool EvaluateBoundaries(float from, float to, float evalSpeed)
+        bool EvaluateBoundaries(float from, float to, float evalSpeed, bool braking)
         {
             int first = _layout.SpanAtDistance(from).Index;
             for (int i = first; i < _layout.PieceCount; i++)
@@ -99,13 +210,19 @@ namespace ApexBrake.Simulation
                     {
                         float ratio = evalSpeed / def.SafeSpeed;
                         if (ratio <= 1f)
+                        {
                             _events.Add(new SimEvent(SimEventKind.CleanPass, i, span.Start));
+                            TryEarnBoost(i, ratio, braking, span.Start, def.Kind == PieceKind.Bump);
+                        }
                         else if (ratio <= _tuning.SkidBand)
                         {
                             evalSpeed *= 1f - _tuning.SkidSpeedLoss;
                             Speed = evalSpeed;
                             SetPhase(CarPhase.Skidding);
                             _events.Add(new SimEvent(SimEventKind.Skid, i, span.Start));
+                            // Savrulma etkin boost'u bitirir, bekleyeni düşürür.
+                            ClearPending();
+                            if (IsBoosting) EndBoost();
                         }
                         else
                         {
@@ -124,11 +241,13 @@ namespace ApexBrake.Simulation
                         Speed = evalSpeed;
                         SetPhase(CarPhase.Airborne);
                         _events.Add(new SimEvent(SimEventKind.Takeoff, i, takeoff));
+                        TryEarnBoost(i, evalSpeed / def.SafeSpeed, braking, takeoff, false);
                     }
                     if (Phase == CarPhase.Airborne && span.End > from && span.End <= to)
                     {
                         SetPhase(CarPhase.Driving);
                         _events.Add(new SimEvent(SimEventKind.Landed, i, span.End));
+                        if (_pendingPiece == i) _pendingReady = true;
                     }
                 }
             }
@@ -140,6 +259,9 @@ namespace ApexBrake.Simulation
             _crashPiece = pieceIndex;
             _crashWasRamp = ramp;
             Speed = 0f;
+            // Çakılma etkin boost'u bitirir; kazanılmış ama başlamamış boost düşer.
+            ClearPending();
+            if (IsBoosting) EndBoost();
             SetPhase(CarPhase.Crashed);
             if (_policy != CrashPolicy.Respawn) IsOut = true;
             _events.Add(new SimEvent(kind, pieceIndex, Distance));
