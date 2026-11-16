@@ -10,7 +10,10 @@ namespace ApexBrake.Racing
     /// </summary>
     public sealed class TouchBrakeInput : MonoBehaviour
     {
-        public bool IsBraking => Poll();
+        /// <summary>Test kancası: true iken fren basılı sayılır (Editor'den betikle doğrulama için).</summary>
+        public bool ForceBrake;
+
+        public bool IsBraking => ForceBrake || Poll();
 
         static bool Poll()
         {

@@ -60,24 +60,42 @@ namespace ApexBrake.Editor
             // Pist
             var trackGo = new GameObject("Track");
             var builder = trackGo.AddComponent<TrackBuilder>();
-            builder.recipe = AssetDatabase.LoadAssetAtPath<LevelRecipe>("Assets/_Game/Data/Levels/Recipe_Graybox.asset");
+            builder.recipe = AssetDatabase.LoadAssetAtPath<LevelRecipe>("Assets/_Game/Data/Levels/Recipe_Graybox_Race.asset");
 
             // Yarış yöneticisi
             var raceGo = new GameObject("Race");
             var input = raceGo.AddComponent<TouchBrakeInput>();
-            var controller = raceGo.AddComponent<CarController>();
+            var controller = raceGo.AddComponent<RaceController>();
             controller.track = builder;
             controller.input = input;
-            controller.policy = CrashPolicy.Eliminate;
-            var hud = raceGo.AddComponent<RaceDebugHud>();
-            hud.controller = controller;
 
-            // Araç
-            var car = (GameObject)PrefabUtility.InstantiatePrefab(carPrefab);
-            var view = car.GetComponent<CarView>();
-            view.controller = controller;
+            // Araçlar: 0 oyuncu (kırmızı), 1-4 botlar (mavi, sarı, yeşil, mor)
+            var colors = new[]
+            {
+                ("Car", new Color(0.85f, 0.15f, 0.15f)),
+                ("Car_Blue", new Color(0.15f, 0.35f, 0.90f)),
+                ("Car_Yellow", new Color(0.95f, 0.80f, 0.10f)),
+                ("Car_Green", new Color(0.15f, 0.70f, 0.25f)),
+                ("Car_Purple", new Color(0.60f, 0.20f, 0.80f)),
+            };
+            var names = new[] { "Car_Player", "Car_Bot1_Usta", "Car_Bot2_Dengeli", "Car_Bot3_Atak", "Car_Bot4_Yavas" };
+            RacerView playerView = null;
+            for (int i = 0; i < colors.Length; i++)
+            {
+                var go = (GameObject)PrefabUtility.InstantiatePrefab(carPrefab);
+                go.name = names[i];
+                var v = go.GetComponent<RacerView>();
+                v.controller = controller;
+                v.racerIndex = i;
+                var mat = Mat(colors[i].Item1, colors[i].Item2);
+                foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
+                    if (r.gameObject.name != "Wheel") r.sharedMaterial = mat;
+                if (i == RaceController.PlayerIndex) playerView = v;
+            }
+            var car = playerView.gameObject;
+            var view = playerView;
 
-            // Takip kamerası: aracın 9 m arkası, 5 m yukarısı, ~15° aşağı bakış, FOV 60
+            // Takip kamerası: aracın 15 m arkası, 8 m yukarısı, ~20° aşağı bakış, FOV 60 (dikey ekranda 5 şerit görünsün)
             var vcamGo = new GameObject("CM Chase Camera");
             var vcam = vcamGo.AddComponent<CinemachineCamera>();
             vcam.Target.TrackingTarget = car.transform;
@@ -85,11 +103,11 @@ namespace ApexBrake.Editor
             vcam.Lens.NearClipPlane = 0.3f;
             vcam.Lens.FarClipPlane = 1500f;
             var follow = vcamGo.AddComponent<CinemachineFollow>();
-            follow.FollowOffset = new Vector3(0f, 5f, -9f);
+            follow.FollowOffset = new Vector3(0f, 8f, -15f);
             follow.TrackerSettings.BindingMode = Unity.Cinemachine.TargetTracking.BindingMode.LazyFollow;
             follow.TrackerSettings.PositionDamping = new Vector3(0.3f, 0.3f, 0.1f);
             var composer = vcamGo.AddComponent<CinemachineHardLookAt>();
-            composer.LookAtOffset = new Vector3(0f, 2.6f, 0f); // 9 m'de 15° aşağı bakış
+            composer.LookAtOffset = new Vector3(0f, 2.6f, 0f); // 15 m'de ~20° aşağı bakış
             vcam.Target.LookAtTarget = car.transform;
             view.vcam = vcam;
 
@@ -101,7 +119,7 @@ namespace ApexBrake.Editor
         static GameObject BuildCarPrefab()
         {
             var root = new GameObject("Car_Graybox");
-            root.AddComponent<CarView>();
+            root.AddComponent<RacerView>();
 
             var body = new GameObject("Body");
             body.transform.SetParent(root.transform, false);
@@ -137,7 +155,7 @@ namespace ApexBrake.Editor
                     w.GetComponent<MeshRenderer>().sharedMaterial = wheelMat;
                 }
 
-            root.GetComponent<CarView>().body = body.transform;
+            root.GetComponent<RacerView>().body = body.transform;
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, CarPrefabPath);
             Object.DestroyImmediate(root);
             return prefab;
