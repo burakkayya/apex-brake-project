@@ -247,6 +247,16 @@ public float Form { get; }                   // −1..+1, yarış başına tohum
   - Gövde, yanal ivmeye göre viraj dışına yatar (en çok 6°) ve fren/gazda öne-arkaya hafif eğilir (en çok 3°).
   - Yoldan çıkan araç: çıkış anındaki yanal hız yönünde savrulup takla atar (Faz 2'deki fırlama, yön artık `LateralVel` işaretinden).
   - `Light` olayında araç 0,6 sn hafifçe zıplar.
+- **Kamera (spec §11.6)** — yeni `Racing/ChaseCameraRig.cs`, oyuncu `RacerView`'ından ayrı bir bileşen; Cinemachine kamerasının takip ofsetini, görüş açısını ve yatmasını sürer. Tüm geçişler yumuşatılır (`Mathf.SmoothDamp`, 0,25–0,6 sn); değerler Inspector'dan ayarlanabilir alanlardır:
+  - Hız: ofset `hız 0 → (0, 6.5, −11.5)`, `hız 30 → (0, 8, −15)` arasında; FOV `60 → 68`.
+  - Fren basılıyken: ofset z'ye `+1.2` (yaklaşır), FOV `−2`.
+  - Kayma: kamera yanal olarak `SlipAngle` yönünün tersine en çok `1.5 m` kayar ve `Dutch` (yatma) en çok `4°`; `Recovered` sonrası 0'a döner.
+  - Boost: FOV `+6` (etkin boost boyunca).
+  - `RearHit`/`Bumped`/`SideHit`/`Light`: `0.25 sn`, genliği `0.25 m`'yi geçmeyen sönümlü sarsıntı (Cinemachine Impulse ya da elle ofset).
+  - Eleme (`Crash`/`FellShort`, oyuncu `IsOut`): kamera takibi bırakır; konumu `0.6 sn`'de durur, takla atan gövdeye bakar ve FOV `−8`.
+  - Bitiş (`Finished`): kamera aracın sağ-arka çaprazına (`(6, 4, −8)`) `1.5 sn`'de döner.
+  - `Restarted`: kamera anında aracın arkasındaki başlangıç konumuna alınır (Faz 2'deki davranış korunur).
+  - `RacerView`'daki FOV kodu bu bileşene taşınır; iki yerde FOV yazılmaz.
 - `RaceHud`: `Skid` → `KAYIYORSUN`, `Recovered` → metin silinir, `Light` → `HAVALANDIN`; sollarken küçük `SOLLAMA` göstergesi.
 - `RaceController`: oyuncuya her yarışta varsayılan `CarStats` (Grip 12). Botlar Görev 4 profilleri.
 - Mini harita en sol aracın üstüne binmesin: çubuk ekranın sol kenarına 24 px boşlukla yaslanır ve yarı saydam olur.
@@ -258,6 +268,9 @@ public float Form { get; }                   // −1..+1, yarış başına tohum
   - `docs/screens/faz2b-recover.png`: aynı koşuda 1–2 sn sonra araç çizgisine dönmüş.
   - `docs/screens/faz2b-offroad.png`: frensiz giriş; araç banketin dışında takla atıyor, `ELENDIN` ya da çakılma anı.
   - `docs/screens/faz2b-overtake.png`: oyuncu ya da bir bot, yavaş bir aracın yanından geçerken.
+  - `docs/screens/faz2b-cam-slow.png` ve `faz2b-cam-fast.png`: aynı düzlükte hız ≈ 5 ve hız ≈ 30 iken; yavaşta araç kadrajda belirgin biçimde daha büyük.
+  - `docs/screens/faz2b-cam-crash.png`: elenmeden ~1 sn sonra; kamera durmuş, takla atan araca bakıyor.
+  - Kamera değerlerini (ofset, FOV, yatma) üç durumda betikle oku ve raporla: hız 5, hız 30, kayma sırasında.
   - Aynı tohumsuz iki yarış arka arkaya: sıralama ya da bitiş süreleri farklı (değerleri raporla).
   - Konsolda proje kodundan hata yok.
 - [ ] **Step 4: Android APK derle** (Faz 2'deki yöntem; 40 dakikayı aşarsa raporla)

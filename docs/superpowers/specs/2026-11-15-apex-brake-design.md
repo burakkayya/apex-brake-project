@@ -350,5 +350,18 @@ Kullanıcı Faz 2'yi görünce savrulmayı ve şerit takibini yapay buldu. Bu b�
 - Her yarışta farklı form; viraj başına değişen risk; ara sıra büyük hata, ara sıra kusursuz geçiş; karar gecikmesi (tepki süresi); startta farklı çıkış; kayarken panik freni; çizgide hafif gezinme.
 - Gizli lastik bant (geride kalana yardım) yoktur **[Ö]**.
 
+### 11.5 Reklamsız (No Ads) [K]
+§1'deki "reklamları kaldır satın alımı yok" kararı geri alındı: oyunda tek seferlik **Reklamsız** satın alımı olacak. **[Ö]** Kapsamı: bölüm arası geçiş reklamlarını kalıcı olarak kaldırır; sonsuz modda kasaya aktarım için izlenen ödüllü reklam kalır (o reklam bir ödül karşılığıdır). Satın alım hesaba bağlıdır ve yeniden yüklemede geri yüklenir. Faz 7'de reklamlarla birlikte uygulanır (Unity IAP).
+
+### 11.6 Kamera hareketi [K]
+Kamera sabit durmaz, sürüşe tepki verir; hepsi hafif olmalı, mide bulandırmamalı **[Ö]**:
+- **Hız:** yavaşlayınca araca biraz yaklaşır ve alçalır, hızlanınca uzaklaşır ve görüş açısı genişler.
+- **Fren:** sert frende kamera hafifçe öne yaklaşır.
+- **Kayma:** kamera aracın arkasında biraz gecikir, viraj dışına doğru hafifçe kayar ve yatar; araç toparlayınca yerine döner.
+- **Boost:** görüş açısı kısa süre genişler.
+- **Temas ve tümsekte havalanma:** kısa, küçük sarsıntı.
+- **Eleme:** kamera aracı takip etmeyi bırakır, olduğu yerde yavaşlayıp taklalar atan araca bakar ve hafifçe yakınlaşır.
+- **Bitiş:** kamera aracın yanına doğru yavaşça döner.
+
 ### 11.4 Dördüncü yükseltme: Lastik [K]
 Ana ekranın altındaki kartlar dört tanedir: **İvme, Maksimum Hız, Lastik, Gelir Çarpanı**. Lastik her seviyede `Tutunma`yı yaklaşık %3 artırır **[Ö]**. Dünya geçişinde İvme ve Maksimum Hız gibi Lastik de sıfırlanır **[Ö]**; Gelir Çarpanı kalır.
