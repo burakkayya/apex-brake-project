@@ -15,6 +15,12 @@ namespace ApexBrake.Racing
         public TrackBuilder track;
         public TouchBrakeInput input;
 
+        [Header("Dogrulama kancasi (0 = kapali; oynanisa etkisi yok)")]
+        [Tooltip("> 0 iken oyuncu bu hizin ustundeyse fren basili sayilir (betikli sahneleme icin)")]
+        public float debugSpeedCap;
+        [Tooltip("> 0 iken debugSpeedCap yalnizca oyuncu bu mesafeye (m) varana kadar gecerlidir")]
+        public float debugCapUntilDistance;
+
         public const int PlayerIndex = 0;
         public const float CountdownSeconds = 3f;
         public const float EndDelaySeconds = 1.5f;
@@ -91,10 +97,15 @@ namespace ApexBrake.Racing
             }
         }
 
+        bool DebugCapBrakes(CarSim player) =>
+            debugSpeedCap > 0f && player.Speed > debugSpeedCap
+            && (debugCapUntilDistance <= 0f || player.Distance < debugCapUntilDistance);
+
         void Update()
         {
             if (Race == null) return;
-            float dt = Time.unscaledDeltaTime;
+            // Oyun Time.timeScale'i değiştirmez (1); doğrulamada ağır çekim için ölçeklenir.
+            float dt = Time.unscaledDeltaTime * Time.timeScale;
 
             if (State == RaceState.Countdown)
             {
@@ -114,7 +125,7 @@ namespace ApexBrake.Racing
                 SyncPrev();
                 var player = Race.Racers[PlayerIndex].Car;
                 bool running = player.Phase != CarPhase.Finished && !player.IsOut;
-                _braking[PlayerIndex] = running && input != null && input.IsBraking;
+                _braking[PlayerIndex] = running && ((input != null && input.IsBraking) || DebugCapBrakes(player));
 
                 Race.Tick(_braking);
                 if (running) ElapsedTime += CarSim.Step;

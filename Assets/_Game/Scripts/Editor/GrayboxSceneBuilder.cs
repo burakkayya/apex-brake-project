@@ -95,7 +95,8 @@ namespace ApexBrake.Editor
             var car = playerView.gameObject;
             var view = playerView;
 
-            // Takip kamerası: aracın 15 m arkası, 8 m yukarısı, ~20° aşağı bakış, FOV 60 (dikey ekranda 5 şerit görünsün)
+            // Takip kamerası (spec §11.6): ofset/FOV/yatma ChaseCameraRig'de hıza, frene, kaymaya göre değişir.
+            // Bağlama yol yönüne kilitli (dünya yukarısı korunur): yanal ofset (kayma, bitiş çaprazı) aracın sağına/soluna göre.
             var vcamGo = new GameObject("CM Chase Camera");
             var vcam = vcamGo.AddComponent<CinemachineCamera>();
             vcam.Target.TrackingTarget = car.transform;
@@ -103,13 +104,16 @@ namespace ApexBrake.Editor
             vcam.Lens.NearClipPlane = 0.3f;
             vcam.Lens.FarClipPlane = 1500f;
             var follow = vcamGo.AddComponent<CinemachineFollow>();
-            follow.FollowOffset = new Vector3(0f, 8f, -15f);
-            follow.TrackerSettings.BindingMode = Unity.Cinemachine.TargetTracking.BindingMode.LazyFollow;
+            follow.FollowOffset = new Vector3(0f, 6.5f, -11.5f);
+            follow.TrackerSettings.BindingMode = Unity.Cinemachine.TargetTracking.BindingMode.LockToTargetWithWorldUp;
             follow.TrackerSettings.PositionDamping = new Vector3(0.3f, 0.3f, 0.1f);
+            follow.TrackerSettings.RotationDamping = new Vector3(0f, 0.35f, 0f);
             var composer = vcamGo.AddComponent<CinemachineHardLookAt>();
-            composer.LookAtOffset = new Vector3(0f, 2.6f, 0f); // 15 m'de ~20° aşağı bakış
+            composer.LookAtOffset = new Vector3(0f, 2.6f, 0f); // ~20° aşağı bakış
             vcam.Target.LookAtTarget = car.transform;
-            view.vcam = vcam;
+            var rig = vcamGo.AddComponent<ChaseCameraRig>();
+            rig.controller = controller;
+            rig.target = view;
 
             // Arayüz: HUD, mini harita, sonuç paneli
             var dotColors = new Color[colors.Length];
@@ -156,19 +160,29 @@ namespace ApexBrake.Editor
             hud.feedbackText = Text("Feedback", safe, new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000, 200), 120, TMPro.TextAlignmentOptions.Center);
             hud.feedbackText.color = new Color(1f, 0.9f, 0.3f);
             hud.feedbackText.text = "";
+            // Sollama göstergesi: hızın üstünde küçük yazı (yalnızca sollarken görünür)
+            hud.overtakeText = Text("Overtake", safe, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 215), new Vector2(500, 80), 54, TMPro.TextAlignmentOptions.Bottom);
+            hud.overtakeText.color = new Color(0.55f, 0.9f, 1f);
+            hud.overtakeText.text = "SOLLAMA";
+            hud.overtakeText.enabled = false;
 
-            // --- Mini harita: sol kenar, dikeyde ortalı, genişlik 16, yükseklik ekranın %45'i ---
+            // --- Mini harita: sol kenara 24 px boşlukla yaslı, yarı saydam, dikeyde ortalı, yükseklik ekranın %45'i ---
             var mapGo = new GameObject("MiniMap", typeof(RectTransform));
             mapGo.transform.SetParent(safe, false);
             var mapRt = (RectTransform)mapGo.transform;
             mapRt.anchorMin = new Vector2(0, 0.275f); mapRt.anchorMax = new Vector2(0, 0.725f);
             mapRt.pivot = new Vector2(0, 0.5f);
-            mapRt.anchoredPosition = new Vector2(48, 0);
+            mapRt.anchoredPosition = new Vector2(24, 0);
             mapRt.sizeDelta = new Vector2(16, 0);
             Img(mapRt, new Color(0f, 0f, 0f, 0.45f));
+            var mapGroup = mapGo.AddComponent<CanvasGroup>();
+            mapGroup.alpha = 0.6f;
+            mapGroup.blocksRaycasts = false;
+            mapGroup.interactable = false;
             var map = mapGo.AddComponent<MiniMapView>();
             map.controller = controller;
             map.bar = mapRt;
+            map.laneSpacing = 10f;   // en sol nokta (−2 × 10) ekranın içinde kalsın
 
             // Bitiş işareti: üstte küçük siyah-beyaz bayrak şeridi
             var finish = Rect("Finish", mapRt, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 0f), new Vector2(0, 6), new Vector2(44, 14));

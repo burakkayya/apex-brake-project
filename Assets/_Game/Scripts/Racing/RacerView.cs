@@ -1,13 +1,12 @@
 using UnityEngine;
-using Unity.Cinemachine;
 using ApexBrake.Simulation;
 
 namespace ApexBrake.Racing
 {
     /// <summary>
-    /// Bir yarışçıyı çizer: pist çizgisi + yanal konum, rampa/tümsek yükseklik profili, uçuş, savrulma,
-    /// çakılma (kendi sayacıyla), temas sarsıntısı ve oyuncu kamerasında boost FOV'u.
-    /// CinemachineBrain'den önce, RaceController'dan sonra çalışır.
+    /// Bir yarışçıyı çizer: pist çizgisi + yanal konum (CarSim.Lateral), rampa/tümsek yükseklik profili, uçuş,
+    /// drift açısı (SlipAngle), yatma/yunuslama, tümsekte hafifleme zıplaması, yoldan çıkınca takla (kendi sayacıyla)
+    /// ve temas sarsıntısı. Kamera ChaseCameraRig'dedir. CinemachineBrain'den önce, RaceController'dan sonra çalışır.
     /// </summary>
     [DefaultExecutionOrder(-50)]
     public sealed class RacerView : MonoBehaviour
@@ -15,12 +14,15 @@ namespace ApexBrake.Racing
         public RaceController controller;
         public int racerIndex;
         public Transform body;
-        public CinemachineCamera vcam;   // yalnızca oyuncuda dolu
 
         public float baseHeight = 0.5f;
-        public float fovMin = 60f;
-        public float fovMax = 68f;
-        public float boostFov = 6f;
+        [Tooltip("Gövde yönü = SlipAngle × bu (viraj dışına kayarken, ters işaretle: kuyruk dışa)")]
+        public float driftYawFactor = 1.6f;
+        public float maxDriftYaw = 35f;     // derece
+        public float maxRoll = 6f;          // derece; viraj dışına yatma
+        public float maxPitch = 3f;         // derece; fren/gaz
+        const float LightDuration = 0.6f;
+        const float LightHop = 0.35f;       // m
 
         // Gri kutu parçalarının ölçüleri (GrayboxPieceFactory ile aynı)
         const float RampWedgeLength = 4f;   // kalkıştan önceki eğik bölüm
@@ -35,8 +37,13 @@ namespace ApexBrake.Racing
         float _crashSide = 1f;
         float _crashHeight;
         float _shakeUntil = -1f;
-        float _boostFovNow;
+        float _crashYaw;
+        float _lightStart = -1f;
+        float _yawNow, _yawVel, _rollNow, _rollVel, _pitchNow, _pitchVel, _driftWeight;
         RaceController _subscribed;
+
+        /// <summary>Takla atan gövde (kamera elemede buna bakar).</summary>
+        public Transform Body => body != null ? body : transform;
 
         void OnEnable() => Subscribe();
         void Start() => Subscribe();
@@ -64,22 +71,8 @@ namespace ApexBrake.Racing
         {
             _crashStart = -1f;
             _shakeUntil = -1f;
-            _boostFovNow = 0f;
-            // Kamera eski yarışın son konumundan start çizgisine sönümlü kaymasın: araç konumlanınca arkasına yerleştirilir.
-            _snapCamera = vcam != null;
-        }
-
-        bool _snapCamera;
-
-        void SnapCamera(Quaternion yaw)
-        {
-            _snapCamera = false;
-            var follow = vcam.GetComponent<CinemachineFollow>();
-            Vector3 offset = follow != null ? follow.FollowOffset : new Vector3(0f, 8f, -15f);
-            Vector3 camPos = transform.position + yaw * offset;
-            var look = transform.position + Vector3.up * 2.6f - camPos;
-            vcam.ForceCameraPosition(camPos, Quaternion.LookRotation(look, Vector3.up));
-            vcam.PreviousStateIsValid = false;
+            _lightStart = -1f;
+            _yawNow = _yawVel = _rollNow = _rollVel = _pitchNow = _pitchVel = _driftWeight = 0f;
         }
 
         void OnRacerEvent(int index, SimEvent e)
@@ -91,6 +84,9 @@ namespace ApexBrake.Racing
                 case SimEventKind.Bumped:
                 case SimEventKind.SideHit:
                     _shakeUntil = Time.time + ShakeDuration;
+                    break;
+                case SimEventKind.Light:
+                    _lightStart = Time.time;
                     break;
                 case SimEventKind.Crash:
                 case SimEventKind.FellShort:
@@ -107,10 +103,11 @@ namespace ApexBrake.Racing
             var c = controller;
             var racer = c.Race.Racers[racerIndex];
             _crashStart = Time.time;
-            var layout = c.track.Layout;
-            int turn = pieceIndex >= 0 && pieceIndex < layout.PieceCount ? layout.SpanAt(pieceIndex).Def.TurnSign : 0;
-            // Virajın dışına: sağ viraj (+1) → sola (-1). Viraj değilse yakın kenara doğru.
-            _crashSide = turn != 0 ? -turn : (racer.Lateral < 0f ? -1f : 1f);
+            _crashYaw = _yawNow;
+            // Savrulma yönü: çıkış anındaki yanal hızın işareti (yoldan çıkan araç bunu korur).
+            // Yanal hız yoksa (ör. tümsekte havalanıp çakılma) yakın kenara doğru.
+            float lv = racer.Car.LateralVel;
+            _crashSide = Mathf.Abs(lv) > 0.05f ? Mathf.Sign(lv) : (racer.Lateral < 0f ? -1f : 1f);
             _crashHeight = HeightAt(racer.Car.Distance, racer.Car, out _);
         }
 
@@ -122,6 +119,7 @@ namespace ApexBrake.Racing
             Subscribe();
             var racer = c.Race.Racers[racerIndex];
             var car = racer.Car;
+            float dt = Time.deltaTime;
 
             float alpha = c.State == RaceState.Racing ? c.Clock.Alpha : 1f;
             float d = Mathf.Lerp(c.PrevDistance(racerIndex), car.Distance, alpha);
@@ -149,22 +147,28 @@ namespace ApexBrake.Racing
                 float k = t / CrashDuration;
                 float ease = 1f - (1f - k) * (1f - k);
                 float arc = 6f * t - 5f * t * t;          // t = 1.2'de 0
+                // Kaymadaki drift açısından başlar, savrulma yönünde takla atar.
                 localPos = new Vector3(_crashSide * 14f * ease, Mathf.Max(arc, 0f) - _crashHeight * k, 16f * ease);
-                localRot = Quaternion.Euler(ease * 720f, 0f, -_crashSide * ease * 360f);
+                localRot = Quaternion.Euler(ease * 720f, _crashYaw * (1f - k), -_crashSide * ease * 360f);
             }
-            else if (car.Phase == CarPhase.Skidding)
+            else
             {
-                float phaseTime = car.PhaseTime + alpha * CarSim.Step;
-                float yawWobble = 25f * Mathf.Sin(phaseTime / 0.6f /* Faz 2 SkidDuration; Faz 2b Görev 5 bu yalpayı siler */ * Mathf.PI * 4f);
-                localRot = Quaternion.Euler(0f, yawWobble, 0f);
+                UpdateBodyPose(c, racer, car, d, dt);
+                localRot = Quaternion.Euler(_pitchNow, _yawNow, _rollNow);
+                if (_lightStart >= 0f)
+                {
+                    float t = Time.time - _lightStart;
+                    if (t < LightDuration) localPos.y += LightHop * Mathf.Sin(Mathf.PI * t / LightDuration);
+                    else _lightStart = -1f;
+                }
             }
 
             if (!crashed && Time.time < _shakeUntil)
             {
                 float s = (_shakeUntil - Time.time) / ShakeDuration;
                 float w = Time.time * 60f;
-                localPos += new Vector3(Mathf.Sin(w) * 0.12f, Mathf.Abs(Mathf.Sin(w * 1.3f)) * 0.08f, 0f) * s;
-                localRot *= Quaternion.Euler(0f, 0f, Mathf.Sin(w * 0.9f) * 4f * s);
+                localPos += new Vector3(Mathf.Sin(w) * 0.08f, Mathf.Abs(Mathf.Sin(w * 1.3f)) * 0.05f, 0f) * s;
+                localRot *= Quaternion.Euler(0f, 0f, Mathf.Sin(w * 0.9f) * 3f * s);
             }
 
             if (body != null)
@@ -172,18 +176,47 @@ namespace ApexBrake.Racing
                 body.localPosition = localPos;
                 body.localRotation = localRot;
             }
+        }
 
-            if (vcam != null && _snapCamera) SnapCamera(yaw);
+        /// <summary>Gövdenin gösterim yönü (derece, + = sağa): yönlendirmenin son değeri. Ölçüm/doğrulama içindir.</summary>
+        public float BodyYaw => _yawNow;
+        public float BodyRoll => _rollNow;
+        public float BodyPitch => _pitchNow;
 
-            if (vcam != null)
+        /// <summary>
+        /// Drift açısı, yatma ve yunuslama. Araç viraj dışına (merkezkaç yönüne) kayarken kuyruk dışa savrulur:
+        /// burun virajın içine döner (gövde = yol yönü − SlipAngle × 1,6). Çizgisine dönerken ya da düzlükte yana kayarken
+        /// burun gidiş yönüne bakar (yol yönü + SlipAngle). İkisi arasındaki geçiş yumuşatılır; iki formül de
+        /// SlipAngle = 0'da 0 olduğundan sıçrama olmaz.
+        /// </summary>
+        void UpdateBodyPose(RaceController c, Racer racer, CarSim car, float d, float dt)
+        {
+            var def = c.track.Layout.SpanAtDistance(d).Def;
+            float slipDeg = car.SlipAngle * Mathf.Rad2Deg;
+            float centrifugal = 0f;                     // + = sağa doğru ivme
+            if (def.Kind == PieceKind.Corner && def.Radius > 0f && car.Speed >= 1f)
+                centrifugal = -def.TurnSign * car.Speed * car.Speed / def.Radius;
+
+            bool outward = def.Kind == PieceKind.Corner && car.LateralVel * -def.TurnSign > 0f && car.IsSliding;
+            if (car.Phase == CarPhase.Airborne) outward = false;
+            _driftWeight = Mathf.MoveTowards(_driftWeight, outward ? 1f : 0f, dt / 0.3f);
+            float yawTarget = slipDeg * Mathf.Lerp(1f, -driftYawFactor, _driftWeight);
+            yawTarget = Mathf.Clamp(yawTarget, -maxDriftYaw, maxDriftYaw);
+            _yawNow = Mathf.SmoothDamp(_yawNow, yawTarget, ref _yawVel, 0.08f, Mathf.Infinity, dt);
+
+            // Yatma: yanal ivmeye göre viraj dışına (sağa ivme → gövdenin sağı alçalır: z negatif).
+            float grip = Mathf.Max(car.Stats.Grip, 0.1f);
+            float rollTarget = car.Phase == CarPhase.Airborne ? 0f : -Mathf.Clamp(centrifugal / grip, -1f, 1f) * maxRoll;
+            _rollNow = Mathf.SmoothDamp(_rollNow, rollTarget, ref _rollVel, 0.18f, Mathf.Infinity, dt);
+
+            // Yunuslama: frende burun dalar (x +), gazda hafif kalkar.
+            float pitchTarget = 0f;
+            if (car.Phase != CarPhase.Airborne && car.Phase != CarPhase.Finished)
             {
-                float target = car.IsBoosting ? boostFov : 0f;
-                _boostFovNow = Mathf.MoveTowards(_boostFovNow, target, boostFov * 4f * Time.unscaledDeltaTime);
-                float sp = Mathf.Clamp01(car.Speed / 30f);
-                var lens = vcam.Lens;
-                lens.FieldOfView = Mathf.Lerp(fovMin, fovMax, sp) + _boostFovNow;
-                vcam.Lens = lens;
+                if (racer.IsBraking && car.Speed > 0.5f) pitchTarget = maxPitch;
+                else if (car.Speed < car.Stats.TopSpeed * car.BoostFactor - 0.5f) pitchTarget = -maxPitch * 0.5f * (1f - car.LateralLoad);
             }
+            _pitchNow = Mathf.SmoothDamp(_pitchNow, pitchTarget, ref _pitchVel, 0.15f, Mathf.Infinity, dt);
         }
 
         /// <summary>

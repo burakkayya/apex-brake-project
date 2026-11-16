@@ -137,6 +137,16 @@ namespace ApexBrake.Editor
             roadGo.transform.SetParent(go.transform, false);
             roadGo.AddComponent<MeshFilter>().sharedMesh = mesh;
             roadGo.AddComponent<MeshRenderer>().sharedMaterial = mat;
+
+            // Banket: yolun iki yanında 1,5 m düz renkli şerit (yolla örtüşmez; araç merkezi bunu da aşınca yoldan çıkar).
+            var shoulderMesh = BuildShoulderMesh(spline, roadFrom, to, widthAt ?? (_ => RoadWidth));
+            string shoulderPath = $"{PrefabDir}/{assetName}.shoulder.asset";
+            AssetDatabase.DeleteAsset(shoulderPath);
+            AssetDatabase.CreateAsset(shoulderMesh, shoulderPath);
+            var shoulderGo = new GameObject("Shoulder");
+            shoulderGo.transform.SetParent(go.transform, false);
+            shoulderGo.AddComponent<MeshFilter>().sharedMesh = shoulderMesh;
+            shoulderGo.AddComponent<MeshRenderer>().sharedMaterial = Mat("Road_Shoulder", ShoulderColor);
             decorate?.Invoke(go);
 
             string prefabPath = $"{PrefabDir}/{assetName}.prefab";
@@ -183,6 +193,50 @@ namespace ApexBrake.Editor
                 }
             }
             var mesh = new Mesh { name = "Road" };
+            mesh.vertices = verts;
+            mesh.triangles = tris.ToArray();
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        const float ShoulderWidth = 1.5f;   // SimTuning.ShoulderWidth ile aynı
+        static readonly Color ShoulderColor = new Color(0.62f, 0.56f, 0.42f);
+
+        // Sol ve sağ banket şeritleri: yol kenarından (genişlik/2) dışa 1,5 m.
+        static Mesh BuildShoulderMesh(Spline spline, float from, float to, System.Func<float, float> widthAt)
+        {
+            int segs = Mathf.Max(2, Mathf.CeilToInt((to - from) / 1f));
+            var verts = new Vector3[(segs + 1) * 4];
+            var tris = new List<int>();
+            var pts = new Vector3[segs + 1];
+            var widths = new float[segs + 1];
+            for (int i = 0; i <= segs; i++)
+            {
+                float d = Mathf.Lerp(from, to, i / (float)segs);
+                float t = spline.ConvertIndexUnit(d, PathIndexUnit.Distance, PathIndexUnit.Normalized);
+                spline.Evaluate(Mathf.Clamp01(t), out float3 p, out _, out _);
+                pts[i] = p;
+                widths[i] = widthAt(d);
+            }
+            for (int i = 0; i <= segs; i++)
+            {
+                Vector3 fwd = (i < segs ? pts[i + 1] - pts[i] : pts[i] - pts[i - 1]);
+                fwd.y = 0f; fwd.Normalize();
+                Vector3 right = Vector3.Cross(Vector3.up, fwd);
+                float half = widths[i] * 0.5f;
+                verts[i * 4 + 0] = pts[i] - right * (half + ShoulderWidth);   // sol dış
+                verts[i * 4 + 1] = pts[i] - right * half;                     // sol iç
+                verts[i * 4 + 2] = pts[i] + right * half;                     // sağ iç
+                verts[i * 4 + 3] = pts[i] + right * (half + ShoulderWidth);   // sağ dış
+                if (i < segs)
+                {
+                    int a = i * 4, n = a + 4;
+                    tris.AddRange(new[] { a, n, a + 1, a + 1, n, n + 1 });                 // sol
+                    tris.AddRange(new[] { a + 2, n + 2, a + 3, a + 3, n + 2, n + 3 });     // sağ
+                }
+            }
+            var mesh = new Mesh { name = "Shoulder" };
             mesh.vertices = verts;
             mesh.triangles = tris.ToArray();
             mesh.RecalculateNormals();

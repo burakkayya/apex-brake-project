@@ -13,10 +13,12 @@ namespace ApexBrake.Racing
         public TMP_Text rankText;
         public TMP_Text speedText;
         public TMP_Text feedbackText;
+        public TMP_Text overtakeText;             // sollarken küçük SOLLAMA göstergesi
         public UnityEngine.UI.Image brakeBar;
 
         public const float GoDuration = 0.7f;
         public const float FeedbackDuration = 0.9f;
+        public const string SlideText = "KAYIYORSUN";
 
         RaceController _subscribed;
         Rect _lastSafe;
@@ -24,6 +26,8 @@ namespace ApexBrake.Racing
         RaceState _lastState = RaceState.Ended;
         float _goTimer;                // > 0 iken BASLA görünür
         float _feedbackTimer;          // > 0 iken geri bildirim görünür
+        bool _sliding;                 // KAYIYORSUN: Recovered (ya da çakılma/bitiş) gelene kadar sürer
+        bool _shownOvertake;
         int _shownCount = -1, _shownRank = -1, _shownRacers = -1, _shownSpeed = -1;
 
         public string FeedbackText => feedbackText != null && _feedbackTimer > 0f ? feedbackText.text : "";
@@ -52,6 +56,9 @@ namespace ApexBrake.Racing
         {
             _goTimer = 0f;
             _feedbackTimer = 0f;
+            _sliding = false;
+            _shownOvertake = false;
+            if (overtakeText != null) { overtakeText.text = "SOLLAMA"; overtakeText.enabled = false; }
             _shownCount = _shownRank = _shownRacers = _shownSpeed = -1;
             _lastState = controller != null ? controller.State : RaceState.Countdown;
             if (feedbackText != null) { feedbackText.text = ""; feedbackText.alpha = 0f; }
@@ -67,7 +74,16 @@ namespace ApexBrake.Racing
             {
                 case SimEventKind.PerfectBrake: msg = "PERFECT!"; break;
                 case SimEventKind.GoodBrake: msg = "GOOD"; break;
-                case SimEventKind.Skid: msg = "SAVRULDUN"; break;
+                case SimEventKind.Skid: msg = SlideText; _sliding = true; break;
+                case SimEventKind.Light: msg = "HAVALANDIN"; break;
+                case SimEventKind.Recovered:
+                case SimEventKind.Crash:
+                case SimEventKind.FellShort:
+                case SimEventKind.Finished:
+                    // Kayma bitti: KAYIYORSUN hemen silinir (başka bir mesaj gösteriliyorsa ona dokunulmaz).
+                    if (_sliding && feedbackText != null && feedbackText.text == SlideText) { feedbackText.text = ""; _feedbackTimer = 0f; }
+                    _sliding = false;
+                    break;
                 case SimEventKind.RearHit:
                 case SimEventKind.SideHit: msg = "TEMAS"; break;
             }
@@ -120,10 +136,18 @@ namespace ApexBrake.Racing
 
             if (feedbackText != null)
             {
-                if (_feedbackTimer > 0f) _feedbackTimer -= dt;
+                // Kayarken KAYIYORSUN tam görünür kalır.
+                if (_sliding && feedbackText.text == SlideText) _feedbackTimer = FeedbackDuration;
+                else if (_feedbackTimer > 0f) _feedbackTimer -= dt;
                 float k = Mathf.Clamp01(_feedbackTimer / FeedbackDuration);
                 feedbackText.alpha = Mathf.Clamp01(k * 2.5f);   // ilk %60 tam görünür, sonra solar
                 if (_feedbackTimer <= 0f && feedbackText.text.Length > 0) feedbackText.text = "";
+            }
+
+            if (overtakeText != null)
+            {
+                bool show = c.State == RaceState.Racing && player.IsOvertaking && !player.Car.IsOut;
+                if (show != _shownOvertake) { _shownOvertake = show; overtakeText.enabled = show; }
             }
 
             if (brakeBar != null)
