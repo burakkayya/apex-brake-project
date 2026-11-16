@@ -53,6 +53,39 @@ namespace ApexBrake.Simulation
             ClearPending(); _boostTicksLeft = 0; _boostFactor = 1f;
         }
 
+        internal void SetOutForTest()
+        {
+            Speed = 0f; SetPhase(CarPhase.Crashed); IsOut = true;
+            ClearPending(); _boostTicksLeft = 0; _boostFactor = 1f;
+        }
+
+        /// <summary>Speed = min(Speed, max); 0'ın altına inmez.</summary>
+        public void LimitSpeed(float max)
+        {
+            if (Speed > max) Speed = max;
+            if (Speed < 0f) Speed = 0f;
+        }
+
+        /// <summary>TopSpeed × BoostFactor tavanına kadar ekler (tavanın üstündeki hızı düşürmez).</summary>
+        public void AddSpeed(float delta)
+        {
+            float cap = _stats.TopSpeed * BoostFactor;
+            float v = Speed + delta;
+            if (v > cap) v = cap;
+            if (v > Speed) Speed = v;
+            else if (delta < 0f) Speed = v < 0f ? 0f : v;
+        }
+
+        public void ScaleSpeed(float factor)
+        {
+            Speed *= factor;
+            if (Speed < 0f) Speed = 0f;
+        }
+
+        /// <summary>Son Tick'in olaylarına ekler; PieceIndex = bulunduğu parça.</summary>
+        public void RaiseEvent(SimEventKind kind) =>
+            _events.Add(new SimEvent(kind, _layout.SpanAtDistance(Distance).Index, Distance));
+
         public void Tick(bool braking)
         {
             _events.Clear();
