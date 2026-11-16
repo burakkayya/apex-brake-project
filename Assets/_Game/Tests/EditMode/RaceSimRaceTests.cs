@@ -127,6 +127,35 @@ namespace ApexBrake.Tests.EditMode
         }
 
         [Test]
+        public void FiveBots_WinnerVariesAcrossSeeds()
+        {
+            var winners = new HashSet<int>();
+            for (uint seed = 1; seed <= 20; seed++)
+            {
+                var r = FiveBots(seed);
+                RunToEnd(r);
+                winners.Add(r.Racers.First(x => x.Rank == 1).HomeLane);
+            }
+            Assert.GreaterOrEqual(winners.Count, 2);
+        }
+
+        [Test]
+        public void FiveBots_SomeOvertakesHappen()
+        {
+            int overtakingTicks = 0;
+            for (uint seed = 1; seed <= 10; seed++)
+            {
+                var r = FiveBots(seed);
+                for (int i = 0; i < 10000 && !r.AllDone; i++)
+                {
+                    r.Tick(NoBrake);
+                    foreach (var x in r.Racers) if (x.IsOvertaking) overtakingTicks++;
+                }
+            }
+            Assert.Greater(overtakingTicks, 0);
+        }
+
+        [Test]
         public void SameSeeds_IdenticalStandingsAndTicks()
         {
             for (uint seed = 1; seed <= 3; seed++)

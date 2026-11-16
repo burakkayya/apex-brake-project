@@ -27,6 +27,8 @@ namespace ApexBrake.Simulation
         public float Lateral => Car.Lateral;
         /// <summary>Önündeki yavaş aracı yandan geçmek için ev çizgisinden ayrıldı mı.</summary>
         public bool IsOvertaking { get; internal set; }
+        /// <summary>Son Tick'te fren basılı mıydı (oyuncu girdisi ya da bot kararı).</summary>
+        public bool IsBraking { get; internal set; }
 
         // Sollama durumu (RaceSim yazar)
         internal int OvertakeBlocker = -1;
@@ -128,6 +130,7 @@ namespace ApexBrake.Simulation
                 brake[i] = r.IsBot
                     ? r.Brain.ShouldBrake(r.Car)
                     : playerBraking != null && i < playerBraking.Count && playerBraking[i];
+                r.IsBraking = brake[i];
             }
 
             // (2) araçlar
@@ -156,6 +159,7 @@ namespace ApexBrake.Simulation
             var me = _racers[i];
             var car = me.Car;
             float home = HomeLine(i);
+            if (me.IsBot) home += me.Brain.LineOffset(car);     // botlar çizgide hafifçe gezinir
             if (car.IsOut || car.Phase == CarPhase.Finished || car.Phase == CarPhase.Crashed)
             {
                 me.IsOvertaking = false; me.OvertakeBlocker = -1; me.TargetHoldTicks = 0;
