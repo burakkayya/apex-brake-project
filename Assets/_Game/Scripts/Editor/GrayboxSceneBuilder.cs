@@ -111,9 +111,171 @@ namespace ApexBrake.Editor
             vcam.Target.LookAtTarget = car.transform;
             view.vcam = vcam;
 
+            // Arayüz: HUD, mini harita, sonuç paneli
+            var dotColors = new Color[colors.Length];
+            for (int i = 0; i < colors.Length; i++) dotColors[i] = colors[i].Item2;
+            BuildUi(controller, dotColors);
+
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             Debug.Log("[GrayboxSceneBuilder] Race_Graybox üretildi.");
+        }
+
+        // ---- arayüz -------------------------------------------------------------
+
+        static void BuildUi(RaceController controller, Color[] dotColors)
+        {
+            // EventSystem (Input System modülü): TEKRAR düğmesi için
+            var esGo = new GameObject("EventSystem");
+            esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+            esGo.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+
+            var canvasGo = new GameObject("RaceCanvas", typeof(RectTransform));
+            var canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            var scaler = canvasGo.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1080, 1920);
+            scaler.matchWidthOrHeight = 0.5f;
+            canvasGo.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+
+            var safe = Rect("SafeArea", canvasGo.transform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+
+            // --- HUD ---
+            var hud = canvasGo.AddComponent<RaceHud>();
+            hud.controller = controller;
+            hud.safeArea = safe;
+
+            var brake = Rect("BrakeBar", safe, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(0, 36));
+            hud.brakeBar = Img(brake, new Color(0.95f, 0.12f, 0.12f, 0.85f));
+            hud.brakeBar.enabled = false;
+
+            hud.countdownText = Text("Countdown", safe, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 120), new Vector2(900, 400), 280, TMPro.TextAlignmentOptions.Center);
+            hud.rankText = Text("Rank", safe, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-40, -40), new Vector2(420, 150), 110, TMPro.TextAlignmentOptions.TopRight);
+            hud.speedText = Text("Speed", safe, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 70), new Vector2(600, 130), 90, TMPro.TextAlignmentOptions.Bottom);
+            hud.feedbackText = Text("Feedback", safe, new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000, 200), 120, TMPro.TextAlignmentOptions.Center);
+            hud.feedbackText.color = new Color(1f, 0.9f, 0.3f);
+            hud.feedbackText.text = "";
+
+            // --- Mini harita: sol kenar, dikeyde ortalı, genişlik 16, yükseklik ekranın %45'i ---
+            var mapGo = new GameObject("MiniMap", typeof(RectTransform));
+            mapGo.transform.SetParent(safe, false);
+            var mapRt = (RectTransform)mapGo.transform;
+            mapRt.anchorMin = new Vector2(0, 0.275f); mapRt.anchorMax = new Vector2(0, 0.725f);
+            mapRt.pivot = new Vector2(0, 0.5f);
+            mapRt.anchoredPosition = new Vector2(48, 0);
+            mapRt.sizeDelta = new Vector2(16, 0);
+            Img(mapRt, new Color(0f, 0f, 0f, 0.45f));
+            var map = mapGo.AddComponent<MiniMapView>();
+            map.controller = controller;
+            map.bar = mapRt;
+
+            // Bitiş işareti: üstte küçük siyah-beyaz bayrak şeridi
+            var finish = Rect("Finish", mapRt, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 0f), new Vector2(0, 6), new Vector2(44, 14));
+            Img(finish, Color.white);
+            for (int k = 0; k < 4; k++)
+            {
+                var sq = Rect("Check" + k, finish, new Vector2(k / 4f, k % 2 == 0 ? 0.5f : 0f), new Vector2((k + 1) / 4f, k % 2 == 0 ? 1f : 0.5f),
+                    new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+                Img(sq, Color.black);
+            }
+
+            var knob = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Knob.psd");
+            var dots = new UnityEngine.UI.Image[dotColors.Length];
+            for (int i = dotColors.Length - 1; i >= 0; i--)
+            {
+                if (i == RaceController.PlayerIndex) continue;
+                var d = Rect("Dot" + i, mapRt, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(22, 22));
+                dots[i] = Img(d, dotColors[i], knob);
+            }
+            // Oyuncu: beyaz çerçeve (34) + araç rengi (26), en son (en üstte) çizilir
+            var ring = Rect("PlayerDot", mapRt, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(34, 34));
+            Img(ring, Color.white, knob);
+            var inner = Rect("Dot0", ring, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(24, 24));
+            dots[RaceController.PlayerIndex] = Img(inner, dotColors[RaceController.PlayerIndex], knob);
+            map.dots = dots;
+
+            // --- Sonuç paneli ---
+            var resultGo = new GameObject("ResultPanel", typeof(RectTransform));
+            resultGo.transform.SetParent(safe, false);
+            var resultRt = (RectTransform)resultGo.transform;
+            resultRt.anchorMin = Vector2.zero; resultRt.anchorMax = Vector2.one;
+            resultRt.offsetMin = Vector2.zero; resultRt.offsetMax = Vector2.zero;
+            var result = resultGo.AddComponent<RaceResultPanel>();
+            result.controller = controller;
+
+            var panel = Rect("Panel", resultRt, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            var dim = Img(panel, new Color(0f, 0f, 0f, 0.72f));
+            dim.raycastTarget = true; // panel açıkken dokunuşlar alttakilere geçmez
+            result.panel = panel.gameObject;
+
+            var card = Rect("Card", panel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(900, 1340));
+            Img(card, new Color(0.12f, 0.13f, 0.16f, 0.95f));
+            result.titleText = Text("Title", card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -40), new Vector2(820, 240), 190, TMPro.TextAlignmentOptions.Center);
+            result.titleText.enableAutoSizing = true;   // "ELENDIN" kartın genişliğine sığsın
+            result.titleText.fontSizeMin = 60;
+            result.titleText.fontSizeMax = 190;
+            result.timeText = Text("Time", card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -290), new Vector2(820, 100), 72, TMPro.TextAlignmentOptions.Center);
+            result.countsText = Text("Counts", card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -390), new Vector2(820, 90), 56, TMPro.TextAlignmentOptions.Center);
+            result.countsText.color = new Color(1f, 0.9f, 0.3f);
+
+            int rows = dotColors.Length;
+            result.rowRank = new TMPro.TMP_Text[rows];
+            result.rowName = new TMPro.TMP_Text[rows];
+            result.rowStatus = new TMPro.TMP_Text[rows];
+            for (int r = 0; r < rows; r++)
+            {
+                float y = -520 - r * 105;
+                var row = Rect("Row" + (r + 1), card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, y), new Vector2(780, 95));
+                Img(row, new Color(1f, 1f, 1f, r % 2 == 0 ? 0.06f : 0.02f));
+                result.rowRank[r] = Text("Rank", row, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(30, 0), new Vector2(120, 90), 56, TMPro.TextAlignmentOptions.Left);
+                result.rowName[r] = Text("Name", row, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(160, 0), new Vector2(340, 90), 56, TMPro.TextAlignmentOptions.Left);
+                result.rowStatus[r] = Text("Status", row, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-30, 0), new Vector2(280, 90), 56, TMPro.TextAlignmentOptions.Right);
+            }
+
+            var btn = Rect("RetryButton", card, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 50), new Vector2(560, 150));
+            var btnImg = Img(btn, new Color(0.90f, 0.20f, 0.20f));
+            btnImg.raycastTarget = true;
+            var button = btn.gameObject.AddComponent<UnityEngine.UI.Button>();
+            button.targetGraphic = btnImg;
+            var label = Text("Label", btn, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(540, 140), 84, TMPro.TextAlignmentOptions.Center);
+            label.text = "TEKRAR";
+            result.retryButton = button;
+            panel.gameObject.SetActive(false);
+        }
+
+        static RectTransform Rect(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 pos, Vector2 size)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = anchorMin; rt.anchorMax = anchorMax; rt.pivot = pivot;
+            rt.sizeDelta = size;
+            rt.anchoredPosition = pos;
+            return rt;
+        }
+
+        static UnityEngine.UI.Image Img(RectTransform rt, Color color, Sprite sprite = null)
+        {
+            var img = rt.gameObject.AddComponent<UnityEngine.UI.Image>();
+            img.color = color;
+            img.sprite = sprite;
+            img.raycastTarget = false;
+            return img;
+        }
+
+        static TMPro.TMP_Text Text(string name, Transform parent, Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size, float fontSize, TMPro.TextAlignmentOptions align)
+        {
+            var rt = Rect(name, parent, anchor, anchor, pivot, pos, size);
+            var t = rt.gameObject.AddComponent<TMPro.TextMeshProUGUI>();
+            t.fontSize = fontSize;
+            t.alignment = align;
+            t.color = Color.white;
+            t.raycastTarget = false;
+            t.textWrappingMode = TMPro.TextWrappingModes.NoWrap;
+            t.fontStyle = TMPro.FontStyles.Bold;
+            t.text = "";
+            return t;
         }
 
         static GameObject BuildCarPrefab()

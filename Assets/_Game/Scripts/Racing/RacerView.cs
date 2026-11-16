@@ -65,6 +65,21 @@ namespace ApexBrake.Racing
             _crashStart = -1f;
             _shakeUntil = -1f;
             _boostFovNow = 0f;
+            // Kamera eski yarışın son konumundan start çizgisine sönümlü kaymasın: araç konumlanınca arkasına yerleştirilir.
+            _snapCamera = vcam != null;
+        }
+
+        bool _snapCamera;
+
+        void SnapCamera(Quaternion yaw)
+        {
+            _snapCamera = false;
+            var follow = vcam.GetComponent<CinemachineFollow>();
+            Vector3 offset = follow != null ? follow.FollowOffset : new Vector3(0f, 8f, -15f);
+            Vector3 camPos = transform.position + yaw * offset;
+            var look = transform.position + Vector3.up * 2.6f - camPos;
+            vcam.ForceCameraPosition(camPos, Quaternion.LookRotation(look, Vector3.up));
+            vcam.PreviousStateIsValid = false;
         }
 
         void OnRacerEvent(int index, SimEvent e)
@@ -157,6 +172,8 @@ namespace ApexBrake.Racing
                 body.localPosition = localPos;
                 body.localRotation = localRot;
             }
+
+            if (vcam != null && _snapCamera) SnapCamera(yaw);
 
             if (vcam != null)
             {

@@ -10,6 +10,7 @@
     "Unity.Mathematics",
     "Unity.TextMeshPro",
     "Unity.Cinemachine",
+    "Unity.InputSystem",
     "Unity.RenderPipelines.Universal.Runtime",
     "Unity.RenderPipelines.Core.Runtime"
   ],
