@@ -95,3 +95,67 @@ Testler önce yazıldı; boş taslaklarla (`OvertakePlanner` ev çizgisini dönd
 - Not: "tek başına" bot testleri aynı pistte 5 aracı farklı ev şeritlerinde, birbirleriyle çarpışmaları kapalı koşar (hız için). Şerit virajlarda yarıçapı ±6,4 m değiştirir; bot bunu kendi çizgisinden hesaplar.
 
 Task 4: complete — EditMode 158/158 (OvertakePlannerTests 9), PlayMode 62/62 (BotDriverTests 8; Explicit geliştirme testleri hariç). BotDriverTests son koşu: Master tek başına 5 tohumda 4 bitirdi (1'i R 40L'de, 879 m); Reckless 8 tohumda 2 kez çıktı (ikisi de 2. rampadan sonraki R 40R'de, 1215–1226 m); Slow ort. 45,9 sn vs Master 42,4 sn; 6 yarışta kazananlar Balanced, Master ×4, Reckless.
+
+## Görev 5 — Temizlik, görünüm, kamera, HUD ve doğrulama
+
+### Silinen dosyalar (eski saf C# simülasyon, eski görünüm ve testleri)
+
+- `Scripts/Simulation/`: `CarSim.cs`, `RaceSim.cs`, `BotBrain.cs`, `SimClock.cs`, `CrashPolicy.cs`, `CarPhase.cs`, `SimEvent.cs`, `CarStats.cs` (+ `.meta`).
+- `Scripts/Racing/`: `RaceController.cs`, `RacerView.cs`, `RaceDebugProbe.cs` (+ `.meta`).
+- `Prefabs/Cars/Car_Graybox.prefab` (eski görünüm aracı).
+- EditMode test sınıfları: `BoostTests`, `BotBrainTests`, `CarSimCrashPolicyTests`, `CarSimDrivingTests`, `CarSimObstacleTests`, `LateralPhysicsTests`, `OvertakeTests`, `RaceSimContactTests`, `RaceSimRaceTests`, `SimClockTests` (+ `.meta`). EditMode test sayısı 158 → 34 (`LaneMapTests`, `TrackLayoutTests`, `OvertakePlannerTests` kaldı).
+- Küçültülenler: `SimTuning` yalnızca şerit geometrisi (`LaneWidth`, `LaneBlendDistance`); `TrackPieceDef`'ten `SafeSpeed`, `MinJumpSpeed`, `SafeSpeedFromRadius`; `TrackLayout`'tan `TryGetNextEvalPoint` ve hız doğrulamaları (rampa için yalnızca `0 < GapLength < Length`); `TrackPieceAsset`'ten `Legacy*` sabitleri; `BotProfile`'dan eski alanlar (`Acceleration`, `TopSpeed`, `Grip`, `BrakeError`, `Risk`, `RiskJitter`, `ToStats`). Perfect Brake Boost'a ait kod, olay, HUD metni ve sonuç satırı kalmadı. `TrackLayoutTests.SafeSpeedFromRadius_UsesGrip12` silindi, `Ctor_RejectsRampWithMinJumpAboveSafe` → `Ctor_RejectsRampWithGapNotInsidePiece`; `LaneMapTests` viraj yardımcısı `SafeSpeed` yerine `Radius` kullanır.
+
+### Yeni / yeniden yazılan
+
+- `VehicleVisual` (plandaki `RacerView → VehicleVisual`): frende stop lambaları (örnek malzeme, ışıma) kırmızı yanar; yanal kayma ≥ 6° (tam 18°) ya da teker ileri kayması ≥ 0,35 iken teker altından gri duman (parçacık, dünya uzayı). Gövde fizik gövdesinin kendisi; tekerlek dönüşü/süspansiyon `VehicleMotor`'da.
+- `ChaseCameraRig` Cinemachine'siz, doğrudan kamerayı süren `LateUpdate` bileşeni; `RaceHud`, `MiniMapView`, `RaceResultPanel` `RaceManager`'a bağlı; `RaceStaging` (geliştirme/çekim kancası: oyuncu fren planı `TouchBrakeInput.ForceBrake` ile, olay/mesafe ekran görüntüleri, CSV telemetri; boşta hiçbir şey yapmaz).
+- `GrayboxSceneBuilder` `Race_Graybox`'ı yeniden üretir: ışık, Global Volume, `Track` (Recipe_Graybox_Race, zemin malzemesi Ground_Grass), `Race` (`TouchBrakeInput`, `RaceManager` — `carPrefab = Car_Physics`, `VehicleConfig_Default`, `Eliminate/Eliminate`, `RaceStaging`), `Main Camera` + `ChaseCameraRig`, EventSystem + Canvas (HUD, mini harita, sonuç paneli). Build Settings: yalnızca bu sahne (ilk).
+
+### Rulings
+
+- Ruling: Kamera Cinemachine yerine kendi `LateUpdate` bileşeni (`ChaseCameraRig`, yürütme sırası 100) — fizik gövdesinin interpolasyonlu dönüşüne göre tek yerde ofset/FOV/yatma/sarsıntı/eleme/bitiş; Cinemachine ardışık düzeninde eleme "takibi bırak" ve bitiş çaprazı iki ayrı yerde yazılıyordu. Yön aracın burnunu değil (yatay) hız yönünü yumuşatarak izler: kayan araç kadrajda yan döner (drift görünür). Kamera, altındaki yol/zemin yüzeyinin en az 1,4 m üstünde tutulur (rampa/tümsekte gömülmesin) — bedeli: Cinemachine paket bağımlılığı Racing derlemesinde kullanılmıyor (asmdef referansı duruyor).
+- Ruling: Kamera ofsetleri plandaki ilk değerlerden (0, 3,2, −7)/(0, 4,2, −10) → (0, 4,2, −8)/(0, 5,6, −11); FOV 62 → 78 aynı. İlk değerlerle dikey 1080×1920 ekranda araç ekranın ortasını kaplıyor, geri sayım yazısının ve ilerideki virajın önünü kesiyordu; ufuk ekranın ortasındaydı (çok gökyüzü). Geri sayımda grid görünsün diye (0, 8,5, −17); start ile yarış ofsetine süzülür. Bakış noktası araç + 0,6 m + hızla 5 m'ye kadar ileri — bedeli: hız hissi biraz azalır; FOV genişlemesi ve yaklaşma korunur.
+- Ruling: Kayma etkisi (kamera kayması ≤ 1,4 m, yatma ≤ 4°) `SlipAngleDeg / 20°` ile ölçeklenir ve yalnızca `IsSliding` iken; ölçülen yarış kaymaları çoğunlukla 6–12° olduğundan pratikte 0,2–0,7 m ve 0,5–3,6° — "hafif, mide bulandırmayan" — bedeli: küçük kaymalarda etki zor fark edilir.
+- Ruling: `OutDetector` — iki tekeri yol dışı zemine (Ground) değen ama ağırlık merkezi hâlâ yol kenarının üstünde olan araç ("asılı") bu durum 1,5 sn kesintisiz sürerse `OffRoad` (eski koşul: Ground teması VE merkezin altında yol yok, 0,4 sn — aynen duruyor). Bulgu: Reckless (tohum 606) ikinci rampadan sonra dış tekerleri 0,5 m'lik yol kenarı basamağından aşağıda, motor açık, hızı 0, sonsuza dek takılı kaldı (oyun dışı da sayılmadı, bitirmedi de; yarış hiç bitmeyebilirdi). Spec §12.2 "yol yüzeyi dışındaki zemine değerse" der — bedeli: tekerleri banket dışına 1,5 sn'den uzun taşan araç elenir; bankette kalan (tekerleri banket üstünde) elenmez.
+- Ruling: `RaceRulesTests.OnShoulder_IsNotOut` kurulumu: bankete çıkış hedefi `HalfWidth + 0,5` → `HalfWidth + 0,1` ve ön koşul "tekerler banket üstünde kaldı" (`maxLat < HalfWidth + 1,5 − 0,85`) eklendi. Eski hedefle takipçi 0,5 m taşıp merkezi `HalfWidth + 1,0`'a getiriyordu: dış tekerler (±0,85 m) banketin (1,5 m) dışında, Ground'a değiyordu — yeni "asılı" kuralıyla haklı olarak oyun dışı. Test konusu (bankette olan araç elenmez) değişmedi — bedeli: yok.
+- Ruling: Bot muhakemesine "dış kenar payı" eklendi: virajın dış kenarına (yol + banket − 1 m) kalan yer 6 m'den azsa tutunma kanaati doğrusal olarak ×0,75'e kadar düşer — Master ev şeridi 0 (ilk sağ virajda en dış), 120 km/s ile 2 m dışa kayıp banket kenarına (−8,5 m) kadar gidiyor, yanındaki araca değip iki yarışta ilk virajda elendi. Sürücü muhakemesi; fizik değişmedi — bedeli: dış şeritteki botlar virajda biraz daha yavaş.
+- Ruling: Geri sayımda sıra dizine göre (oyuncu 1/5) — izdüşüm gürültüsü gridde "3 / 5" gösteriyordu; yalnızca sunum — bedeli: yok.
+- Ruling: Pist dizisi değişmedi (1341 m). Oyuncu aracını Master profilli bot sürünce (iyi sürüş vekili) yarış 41,96 / 42,18 / 42,74 / 43,12 sn; spec §3.1 30–45 sn içinde. Tüm parça türleri (R 40, R 25, R 60 yok — yarış tarifinde zaten yoktu, tümsek, iki rampa, iki daralma) botlarca sürülebiliyor — bedeli: iyi bir insan oyuncu ~40 sn'ye inebilir; bant içinde.
+- Ruling: Sonuç panelinde başlık oyuncu bitirdiyse sıra (`1.`), değilse `ELENDIN`; satır durumu `Bitti` / `Yol disi` (OffRoad) / `Takla` (Flipped) / `Dustu` (Fell) / `Yarista`. Eski "Perfect/Good" satırı silindi, satırlar yukarı kaydı — bedeli: yok.
+- Ruling: `faz2c-offroad.png` aracı çimde, takibi bırakmış kamerayla gösterir (oyun dışından 1,2 sn sonra, panel açılmadan); yarışın bittiği ve `Yol disi` durumu ayrı bir karede: `faz2c-offroad-result.png` (aynı tür bir koşuda panel açıkken; panel aracı örtüyor). `faz2c-contact.png` bir otopilot yarışından (oyuncu mavi araçla yan yana, `TEMAS` + `SOLLAMA`) — bedeli: yok.
+- Ruling: `Library/PackageCache/com.unity.ide.visualstudio@…/SdkStyleProjectGeneration.cs` dosyası paket önbelleğinde kayıptı (yalnızca `.meta`), Editor güvenli modda derleme hatası verdi (proje kodu değil). Bozuk önbellek klasörü çalışma alanı dışına taşındı, `Client.Resolve()` paketi yeniden indirdi, dosya yeniden içe aktarıldı; derleme temiz — bedeli: yok.
+- Not: `Explicit` `BotTuningSweep` kaldı (bot kanaat ölçümü); `Dev_PhysicsCar` sahnesi ve `DevDriveSession` duruyor (yeniden üretildi).
+
+### Telemetri raporu (Race_Graybox, Editor, 1080×1920, `RaceStaging` CSV kaydı; mesafeler pist boyunca)
+
+Pist: S100 0–100, R40 sağ 100–163, S100, Daralma3 263–323, S50, Tümsek 373–385, S50, R25 sol 435–474, S100, Rampa 574–620, S100, Daralma2 720–780, S50, R40 sol 830–893, S50, R25 sağ 943–982, S100, Rampa 1082–1129, S50, R40 sağ 1179–1241, S100 (bitiş 1341,7).
+
+| Ölçüm | Değer |
+|---|---|
+| 0 → 100 km/s (yarışta, start) | 3,36–3,48 sn |
+| En yüksek hız (yarışta) | 140,0–141,9 km/s (S100 ~700 m; tek araçlı ölçümde 144,8) |
+| Tam fren | 133 → 0 km/s 1,48 sn, 27,4 m; en büyük burun dalışı −3,7° |
+| R 40 sağ #1, tam gaz (118 km/s giriş) | yolda; dışa en çok 2,3 m, kayma 11,9°, kamera kayması 0,73 m, yatma 2,1° |
+| R 40 sağ #1, frenle (85–118 km/s) | yolda; sapma 1,2–2,8 m, kayma 5–9° |
+| R 25 sol #1, tam gaz (136 km/s giriş) | yoldan çıkar (475 m), sapma 30 m, kayma 13,7° — 4 koşunun 4'ünde |
+| R 25 sol #1, frenle (96–111 km/s giriş) | yolda; sapma 1,7–5,7 m, kayma 5,6–9,4° |
+| R 40 sol, tam gaz (142 km/s giriş) + kayınca fren | yolda; dışa 4,8 m, kayma 10,8°, kamera kayması 0,48 m, yatma 1,4° (`faz2c-drift.png`) |
+| R 40 sol, frenle (116–124 km/s) | yolda; sapma 1,7–2,4 m, kayma 6–7° |
+| R 25 sağ, frenle (92–107 km/s) | yolda; sapma 1,4–5,8 m (kayınca frenli koşuda), kayma 4,7–8,9° |
+| R 25 sağ, yalnızca R 25 sol öncesi frenlenen koşu (tam gaz) | yoldan çıkar (995 m) |
+| R 40 sağ #2 (rampa inişinden 50 m sonra), frenle (126–129 km/s) | yolda; sapma 1,6–3,9 m, kayma 6,5–8,8° |
+| Rampa 1 / 2 | kalkış 123–127 km/s; `IsAirborne` (≥ 0,15 sn yerden kesik) 13–14,5 m / 0,38–0,42 sn (gerçek uçuş ≈ 18 m), iniş burnu −17…−27°, yola devam |
+| Kamera yavaşta (< 60 km/s) | ofset ≈ (0, 4,8, −9,2), FOV ≈ 65, yatma 0 |
+| Kamera hızlıda (> 130 km/s) | ofset (0, 5,55, −10,9), FOV 77, yatma 0 |
+| Kamera kayarken | ofset ≈ (±0,2–0,7, 5,35, −10,4), FOV ≈ 74, yatma en çok 2,4–3,6° |
+
+Arka arkaya iki yarış (oyuncu otopilotta, Master profili; tohumlar 1630219717, 123806559):
+1. Sen 41,96 sn; Reckless 42,58; Master (1318 m'de, oyuncu bitirince yarış bitti); Slow (1236 m); Balanced Yol disi (773 m, Daralma2'de sıkışma).
+2. Sen 42,74 sn; Master 43,56; Balanced 43,80; Reckless (1309 m); Slow (1248 m).
+
+Diğer staging yarışları: otopilot 42,18 sn (1.) ve 43,12 sn (Sen/Master/Reckless aynı adımda çizgide, 1.); manuel fren planı + kayınca fren 45,92 sn (4.).
+
+### Kod taraması (Step 4)
+
+`Assets/_Game/Scripts` içinde `SafeSpeed`, `MinJumpSpeed`, `CornerLimit`, `Perfect`, `Boost` araması: **boş**. Kalan hız karşılaştırmaları / hız kullanımları: `BotDriver` (sürücü muhakemesi: virajda tahmini hız ve fren mesafesi, `vv <= allow`), `OvertakePlanner` (çizgi seçimi: öndeki araç belirgin yavaş mı), `RaceManager` (izlenen çizginin kayma hızı ileri hızla ölçeklenir; sollama planlayıcısına hız girdisi), `VehicleMotor` (motor itiş eğrisi `1 − (v/tavan)²`; `PlaceAt` hızı sıfırlar — start/yeniden doğma), `VehicleTelemetry` / `RaceHud` / `ChaseCameraRig` / `VehicleVisual` (sunum: km/s, kayma, kamera, duman), `LineDriver` (bakış mesafesi hızla ölçeklenir), `DevDriveSession` / `RaceStaging` (geliştirme). Hiçbir oyun kuralı (oyun dışı, sıra, bitiş) hız karşılaştırmaz; `OutDetector` yalnızca temas, yükseklik, yönelim ve süre kullanır.

@@ -10,7 +10,7 @@ namespace ApexBrake.Racing
     /// </summary>
     public static class VehicleBuilder
     {
-        static Material _wheelMat, _cabinMat, _lightMat;
+        static Material _wheelMat, _cabinMat, _lightMat, _tailMat, _smokeMat;
 
         public static VehicleMotor Create(VehicleConfig config, Color color, string name = "Car")
         {
@@ -34,6 +34,13 @@ namespace ApexBrake.Racing
             float front = config.bodySize.z * 0.5f;
             Box("LightL", body.transform.parent, new Vector3(-0.55f, bodyY + 0.05f, front + 0.01f), new Vector3(0.35f, 0.12f, 0.04f), _lightMat, false);
             Box("LightR", body.transform.parent, new Vector3(0.55f, bodyY + 0.05f, front + 0.01f), new Vector3(0.35f, 0.12f, 0.04f), _lightMat, false);
+            // Stop lambaları (VehicleVisual frende yakar)
+            if (_tailMat == null) _tailMat = MakeTailMat();
+            var tails = new Renderer[]
+            {
+                Box("BrakeLightL", body.transform.parent, new Vector3(-0.6f, bodyY + 0.08f, -front - 0.01f), new Vector3(0.45f, 0.14f, 0.04f), _tailMat, false).GetComponent<Renderer>(),
+                Box("BrakeLightR", body.transform.parent, new Vector3(0.6f, bodyY + 0.08f, -front - 0.01f), new Vector3(0.45f, 0.14f, 0.04f), _tailMat, false).GetComponent<Renderer>(),
+            };
 
             // Tekerlekler: dinlenmede teker merkezi ≈ yarıçap yüksekliğinde.
             var wheelRoot = new GameObject("Wheels").transform;
@@ -95,9 +102,84 @@ namespace ApexBrake.Racing
             foreach (var bc in root.GetComponentsInChildren<BoxCollider>(true)) bc.sharedMaterial = bodyPm;
             root.AddComponent<LineDriver>();
             root.AddComponent<VehicleTelemetry>();
+            var smoke = new ParticleSystem[4];
+            for (int i = 0; i < 4; i++) smoke[i] = MakeSmoke(wheelRoot, colliders[i].transform.localPosition, names[i]);
+            root.AddComponent<VehicleVisual>().Bind(tails, smoke);
             SetLayerRecursive(root, TrackLayers.Car);
             root.SetActive(true);
             return motor;
+        }
+
+        static Material MakeTailMat()
+        {
+            var m = MakeMat(new Color(0.35f, 0.04f, 0.04f));
+            m.name = "BrakeLight";
+            m.EnableKeyword("_EMISSION");
+            m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            if (m.HasProperty("_EmissionColor")) m.SetColor("_EmissionColor", Color.black);
+            return m;
+        }
+
+        /// <summary>Teker altında duman: dünya uzayında, yavaş yükselip büyüyen gri yumaklar (gri kutu düzeyinde).</summary>
+        static ParticleSystem MakeSmoke(Transform parent, Vector3 localPos, string name)
+        {
+            var go = new GameObject("Smoke_" + name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = new Vector3(localPos.x, 0.1f, localPos.z);
+            var ps = go.AddComponent<ParticleSystem>();
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = ps.main;
+            main.duration = 1f; main.loop = true; main.playOnAwake = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.1f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.3f, 1.2f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.6f, 1.1f);
+            main.startColor = new Color(0.82f, 0.82f, 0.82f, 0.55f);
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.gravityModifier = -0.05f;
+            main.maxParticles = 200;
+            var em = ps.emission; em.rateOverTime = 0f;
+            var shape = ps.shape; shape.shapeType = ParticleSystemShapeType.Sphere; shape.radius = 0.2f;
+            var size = ps.sizeOverLifetime; size.enabled = true; size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.6f, 1f, 2.2f));
+            var col = ps.colorOverLifetime; col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                         new[] { new GradientAlphaKey(0.6f, 0f), new GradientAlphaKey(0f, 1f) });
+            col.color = grad;
+            var r = go.GetComponent<ParticleSystemRenderer>();
+            if (_smokeMat == null) _smokeMat = MakeSmokeMat();
+            r.sharedMaterial = _smokeMat;
+            ps.Play();
+            return ps;
+        }
+
+        static Material MakeSmokeMat()
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+            var m = new Material(shader) { name = "TireSmoke" };
+            var tex = new Texture2D(32, 32, TextureFormat.RGBA32, false) { name = "TireSmokeTex", wrapMode = TextureWrapMode.Clamp };
+            for (int y = 0; y < 32; y++)
+                for (int x = 0; x < 32; x++)
+                {
+                    float d = new Vector2(x - 15.5f, y - 15.5f).magnitude / 15.5f;
+                    float a = Mathf.Clamp01(1f - d); a *= a;
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            if (m.HasProperty("_BaseMap")) m.SetTexture("_BaseMap", tex);
+            m.mainTexture = tex;
+            if (m.HasProperty("_Surface"))
+            {
+                m.SetFloat("_Surface", 1f); m.SetFloat("_Blend", 0f);
+                m.SetOverrideTag("RenderType", "Transparent");
+                m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                m.SetInt("_ZWrite", 0);
+                m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
+            if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", Color.white);
+            return m;
         }
 
         static GameObject Box(string name, Transform parent, Vector3 pos, Vector3 size, Material mat, bool collider)

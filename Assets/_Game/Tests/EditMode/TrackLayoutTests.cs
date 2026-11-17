@@ -40,16 +40,15 @@ namespace ApexBrake.Tests.EditMode
             Assert.IsFalse(l.TryGetNextObstacle(120f, out _));
         }
 
-        [Test] public void SafeSpeedFromRadius_UsesGrip12() => Assert.AreEqual(21.9089f, TrackPieceDef.SafeSpeedFromRadius(40f), 0.001f);
 
         [Test] public void Ctor_RejectsEmpty() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef>()));
         [Test] public void Ctor_RejectsObstacleAsFirstPiece() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { C(60), S(40) }));
         [Test] public void Ctor_RejectsObstacleAsLastPiece() => Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(40), C(60) }));
 
         [Test]
-        public void Ctor_RejectsRampWithMinJumpAboveSafe()
+        public void Ctor_RejectsRampWithGapNotInsidePiece()
         {
-            var ramp = new TrackPieceDef { Kind = PieceKind.Ramp, Length = 40, SafeSpeed = 20, MinJumpSpeed = 25, GapLength = 12 };
+            var ramp = new TrackPieceDef { Kind = PieceKind.Ramp, Length = 40, GapLength = 45 };
             Assert.Throws<ArgumentException>(() => new TrackLayout(new List<TrackPieceDef> { S(50), ramp, S(50) }));
         }
 

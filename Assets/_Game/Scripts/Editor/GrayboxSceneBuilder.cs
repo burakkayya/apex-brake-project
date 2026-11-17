@@ -1,4 +1,3 @@
-using Unity.Cinemachine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -6,21 +5,23 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 using ApexBrake.Racing;
-using ApexBrake.Simulation;
 using ApexBrake.Track;
 
 namespace ApexBrake.Editor
 {
-    /// <summary>Car_Graybox prefab'ını ve Race_Graybox sahnesini üretir.</summary>
+    /// <summary>Race_Graybox sahnesini (fizik araçlar, RaceManager, takip kamerası, HUD) üretir.</summary>
     public static class GrayboxSceneBuilder
     {
-        const string CarPrefabPath = "Assets/_Game/Prefabs/Cars/Car_Graybox.prefab";
+        const string CarPrefabPath = "Assets/_Game/Prefabs/Cars/Car_Physics.prefab";
+        const string ConfigPath = "Assets/_Game/Data/Vehicles/VehicleConfig_Default.asset";
         const string ScenePath = "Assets/_Game/Scenes/Race_Graybox.unity";
 
         [MenuItem("Apex Brake/Graybox/Sahneyi Üret")]
         public static void Build()
         {
-            var carPrefab = BuildCarPrefab();
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(CarPrefabPath) == null) CarPrefabFactory.Generate();
+            var carPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CarPrefabPath);
+            var config = AssetDatabase.LoadAssetAtPath<VehicleConfig>(ConfigPath);
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -29,16 +30,9 @@ namespace ApexBrake.Editor
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 1.2f;
+            light.shadows = LightShadows.Soft;
             lightGo.AddComponent<UniversalAdditionalLightData>();
             lightGo.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
-
-            // Zemin
-            var ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            ground.name = "Ground";
-            Object.DestroyImmediate(ground.GetComponent<Collider>());
-            ground.transform.position = new Vector3(0, -0.25f, 0);
-            ground.transform.localScale = new Vector3(3000f, 0.2f, 3000f);
-            ground.GetComponent<MeshRenderer>().sharedMaterial = Mat("Ground", new Color(0.18f, 0.28f, 0.18f));
 
             // Global Volume
             var volGo = new GameObject("Global Volume");
@@ -46,88 +40,55 @@ namespace ApexBrake.Editor
             vol.isGlobal = true;
             vol.sharedProfile = AssetDatabase.LoadAssetAtPath<VolumeProfile>("Assets/_Game/Data/GlobalVolumeProfile.asset");
 
-            // Kamera + Cinemachine
+            // Pist (yol dışı zemini TrackBuilder kurar)
+            var trackGo = new GameObject("Track");
+            var builder = trackGo.AddComponent<TrackBuilder>();
+            builder.recipe = AssetDatabase.LoadAssetAtPath<LevelRecipe>("Assets/_Game/Data/Levels/Recipe_Graybox_Race.asset");
+            builder.groundMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Game/Materials/Ground_Grass.mat");
+
+            // Yarış: 5 fizik araç çalışma anında prefab'tan kurulur (oyuncu kırmızı; botlar mavi, sarı, yeşil, mor).
+            var raceGo = new GameObject("Race");
+            var input = raceGo.AddComponent<TouchBrakeInput>();
+            var race = raceGo.AddComponent<RaceManager>();
+            race.track = builder;
+            race.input = input;
+            race.carPrefab = carPrefab;
+            race.vehicleConfig = config;
+            race.playerPolicy = OutPolicy.Eliminate;
+            race.botPolicy = OutPolicy.Eliminate;
+
+            // Kamera (spec §11.6): ChaseCameraRig ofset/FOV/yatmayı hıza, frene, kaymaya göre sürer.
             var camGo = new GameObject("Main Camera") { tag = "MainCamera" };
             var cam = camGo.AddComponent<Camera>();
-            cam.fieldOfView = 60f;
+            cam.fieldOfView = 62f;
             cam.nearClipPlane = 0.3f;
             cam.farClipPlane = 1500f;
             camGo.AddComponent<AudioListener>();
             var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
             camData.renderPostProcessing = true;
-            camGo.AddComponent<CinemachineBrain>();
+            var rig = camGo.AddComponent<ChaseCameraRig>();
+            rig.race = race;
 
-            // Pist
-            var trackGo = new GameObject("Track");
-            var builder = trackGo.AddComponent<TrackBuilder>();
-            builder.recipe = AssetDatabase.LoadAssetAtPath<LevelRecipe>("Assets/_Game/Data/Levels/Recipe_Graybox_Race.asset");
-
-            // Yarış yöneticisi
-            var raceGo = new GameObject("Race");
-            var input = raceGo.AddComponent<TouchBrakeInput>();
-            var controller = raceGo.AddComponent<RaceController>();
-            controller.track = builder;
-            controller.input = input;
-
-            // Araçlar: 0 oyuncu (kırmızı), 1-4 botlar (mavi, sarı, yeşil, mor)
-            var colors = new[]
-            {
-                ("Car", new Color(0.85f, 0.15f, 0.15f)),
-                ("Car_Blue", new Color(0.15f, 0.35f, 0.90f)),
-                ("Car_Yellow", new Color(0.95f, 0.80f, 0.10f)),
-                ("Car_Green", new Color(0.15f, 0.70f, 0.25f)),
-                ("Car_Purple", new Color(0.60f, 0.20f, 0.80f)),
-            };
-            var names = new[] { "Car_Player", "Car_Bot1_Usta", "Car_Bot2_Dengeli", "Car_Bot3_Atak", "Car_Bot4_Yavas" };
-            RacerView playerView = null;
-            for (int i = 0; i < colors.Length; i++)
-            {
-                var go = (GameObject)PrefabUtility.InstantiatePrefab(carPrefab);
-                go.name = names[i];
-                var v = go.GetComponent<RacerView>();
-                v.controller = controller;
-                v.racerIndex = i;
-                var mat = Mat(colors[i].Item1, colors[i].Item2);
-                foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
-                    if (r.gameObject.name != "Wheel") r.sharedMaterial = mat;
-                if (i == RaceController.PlayerIndex) playerView = v;
-            }
-            var car = playerView.gameObject;
-            var view = playerView;
-
-            // Takip kamerası (spec §11.6): ofset/FOV/yatma ChaseCameraRig'de hıza, frene, kaymaya göre değişir.
-            // Bağlama yol yönüne kilitli (dünya yukarısı korunur): yanal ofset (kayma, bitiş çaprazı) aracın sağına/soluna göre.
-            var vcamGo = new GameObject("CM Chase Camera");
-            var vcam = vcamGo.AddComponent<CinemachineCamera>();
-            vcam.Target.TrackingTarget = car.transform;
-            vcam.Lens.FieldOfView = 60f;
-            vcam.Lens.NearClipPlane = 0.3f;
-            vcam.Lens.FarClipPlane = 1500f;
-            var follow = vcamGo.AddComponent<CinemachineFollow>();
-            follow.FollowOffset = new Vector3(0f, 6.5f, -11.5f);
-            follow.TrackerSettings.BindingMode = Unity.Cinemachine.TargetTracking.BindingMode.LockToTargetWithWorldUp;
-            follow.TrackerSettings.PositionDamping = new Vector3(0.3f, 0.3f, 0.1f);
-            follow.TrackerSettings.RotationDamping = new Vector3(0f, 0.35f, 0f);
-            var composer = vcamGo.AddComponent<CinemachineHardLookAt>();
-            composer.LookAtOffset = new Vector3(0f, 2.6f, 0f); // ~20° aşağı bakış
-            vcam.Target.LookAtTarget = car.transform;
-            var rig = vcamGo.AddComponent<ChaseCameraRig>();
-            rig.controller = controller;
-            rig.target = view;
+            var staging = raceGo.AddComponent<RaceStaging>();
+            staging.race = race; staging.input = input; staging.cameraRig = rig;
 
             // Arayüz: HUD, mini harita, sonuç paneli
-            var dotColors = new Color[colors.Length];
-            for (int i = 0; i < colors.Length; i++) dotColors[i] = colors[i].Item2;
-            BuildUi(controller, dotColors);
+            BuildUi(race, input, RaceManagerColors);
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             Debug.Log("[GrayboxSceneBuilder] Race_Graybox üretildi.");
         }
 
+        static readonly Color[] RaceManagerColors =
+        {
+            new Color(0.85f, 0.12f, 0.10f), new Color(0.15f, 0.35f, 0.85f), new Color(0.95f, 0.80f, 0.15f),
+            new Color(0.20f, 0.70f, 0.30f), new Color(0.55f, 0.25f, 0.75f),
+        };
+
         // ---- arayüz -------------------------------------------------------------
 
-        static void BuildUi(RaceController controller, Color[] dotColors)
+        static void BuildUi(RaceManager race, TouchBrakeInput input, Color[] dotColors)
         {
             // EventSystem (Input System modülü): TEKRAR düğmesi için
             var esGo = new GameObject("EventSystem");
@@ -147,14 +108,15 @@ namespace ApexBrake.Editor
 
             // --- HUD ---
             var hud = canvasGo.AddComponent<RaceHud>();
-            hud.controller = controller;
+            hud.race = race;
+            hud.input = input;
             hud.safeArea = safe;
 
             var brake = Rect("BrakeBar", safe, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(0, 36));
             hud.brakeBar = Img(brake, new Color(0.95f, 0.12f, 0.12f, 0.85f));
             hud.brakeBar.enabled = false;
 
-            hud.countdownText = Text("Countdown", safe, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 120), new Vector2(900, 400), 280, TMPro.TextAlignmentOptions.Center);
+            hud.countdownText = Text("Countdown", safe, new Vector2(0.5f, 0.72f), new Vector2(0.5f, 0.5f), new Vector2(0, 0), new Vector2(900, 400), 280, TMPro.TextAlignmentOptions.Center);
             hud.rankText = Text("Rank", safe, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-40, -40), new Vector2(420, 150), 110, TMPro.TextAlignmentOptions.TopRight);
             hud.speedText = Text("Speed", safe, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 70), new Vector2(600, 130), 90, TMPro.TextAlignmentOptions.Bottom);
             hud.feedbackText = Text("Feedback", safe, new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000, 200), 120, TMPro.TextAlignmentOptions.Center);
@@ -180,7 +142,7 @@ namespace ApexBrake.Editor
             mapGroup.blocksRaycasts = false;
             mapGroup.interactable = false;
             var map = mapGo.AddComponent<MiniMapView>();
-            map.controller = controller;
+            map.race = race;
             map.bar = mapRt;
             map.laneSpacing = 10f;   // en sol nokta (−2 × 10) ekranın içinde kalsın
 
@@ -198,7 +160,7 @@ namespace ApexBrake.Editor
             var dots = new UnityEngine.UI.Image[dotColors.Length];
             for (int i = dotColors.Length - 1; i >= 0; i--)
             {
-                if (i == RaceController.PlayerIndex) continue;
+                if (i == RaceManager.PlayerIndex) continue;
                 var d = Rect("Dot" + i, mapRt, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(22, 22));
                 dots[i] = Img(d, dotColors[i], knob);
             }
@@ -206,7 +168,7 @@ namespace ApexBrake.Editor
             var ring = Rect("PlayerDot", mapRt, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(34, 34));
             Img(ring, Color.white, knob);
             var inner = Rect("Dot0", ring, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(24, 24));
-            dots[RaceController.PlayerIndex] = Img(inner, dotColors[RaceController.PlayerIndex], knob);
+            dots[RaceManager.PlayerIndex] = Img(inner, dotColors[RaceManager.PlayerIndex], knob);
             map.dots = dots;
 
             // --- Sonuç paneli ---
@@ -216,7 +178,7 @@ namespace ApexBrake.Editor
             resultRt.anchorMin = Vector2.zero; resultRt.anchorMax = Vector2.one;
             resultRt.offsetMin = Vector2.zero; resultRt.offsetMax = Vector2.zero;
             var result = resultGo.AddComponent<RaceResultPanel>();
-            result.controller = controller;
+            result.race = race;
 
             var panel = Rect("Panel", resultRt, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
             var dim = Img(panel, new Color(0f, 0f, 0f, 0.72f));
@@ -230,8 +192,6 @@ namespace ApexBrake.Editor
             result.titleText.fontSizeMin = 60;
             result.titleText.fontSizeMax = 190;
             result.timeText = Text("Time", card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -290), new Vector2(820, 100), 72, TMPro.TextAlignmentOptions.Center);
-            result.countsText = Text("Counts", card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -390), new Vector2(820, 90), 56, TMPro.TextAlignmentOptions.Center);
-            result.countsText.color = new Color(1f, 0.9f, 0.3f);
 
             int rows = dotColors.Length;
             result.rowRank = new TMPro.TMP_Text[rows];
@@ -239,7 +199,7 @@ namespace ApexBrake.Editor
             result.rowStatus = new TMPro.TMP_Text[rows];
             for (int r = 0; r < rows; r++)
             {
-                float y = -520 - r * 105;
+                float y = -430 - r * 110;
                 var row = Rect("Row" + (r + 1), card, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, y), new Vector2(780, 95));
                 Img(row, new Color(1f, 1f, 1f, r % 2 == 0 ? 0.06f : 0.02f));
                 result.rowRank[r] = Text("Rank", row, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(30, 0), new Vector2(120, 90), 56, TMPro.TextAlignmentOptions.Left);
@@ -290,51 +250,6 @@ namespace ApexBrake.Editor
             t.fontStyle = TMPro.FontStyles.Bold;
             t.text = "";
             return t;
-        }
-
-        static GameObject BuildCarPrefab()
-        {
-            var root = new GameObject("Car_Graybox");
-            root.AddComponent<RacerView>();
-
-            var body = new GameObject("Body");
-            body.transform.SetParent(root.transform, false);
-            var carMat = Mat("Car", new Color(0.85f, 0.15f, 0.15f));
-            var wheelMat = Mat("Wheel", new Color(0.08f, 0.08f, 0.08f));
-
-            var hull = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            hull.name = "Hull";
-            Object.DestroyImmediate(hull.GetComponent<Collider>());
-            hull.transform.SetParent(body.transform, false);
-            hull.transform.localScale = new Vector3(1.8f, 0.6f, 4f);
-            hull.transform.localPosition = new Vector3(0, 0.1f, 0);
-            hull.GetComponent<MeshRenderer>().sharedMaterial = carMat;
-
-            var cabin = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cabin.name = "Cabin";
-            Object.DestroyImmediate(cabin.GetComponent<Collider>());
-            cabin.transform.SetParent(body.transform, false);
-            cabin.transform.localScale = new Vector3(1.4f, 0.5f, 1.6f);
-            cabin.transform.localPosition = new Vector3(0, 0.65f, -0.2f);
-            cabin.GetComponent<MeshRenderer>().sharedMaterial = carMat;
-
-            foreach (var x in new[] { -1f, 1f })
-                foreach (var z in new[] { -1.3f, 1.3f })
-                {
-                    var w = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                    w.name = "Wheel";
-                    Object.DestroyImmediate(w.GetComponent<Collider>());
-                    w.transform.SetParent(body.transform, false);
-                    w.transform.localScale = new Vector3(0.7f, 0.15f, 0.7f);
-                    w.transform.localRotation = Quaternion.Euler(0, 0, 90f);
-                    w.transform.localPosition = new Vector3(x * 0.95f, -0.1f, z);
-                    w.GetComponent<MeshRenderer>().sharedMaterial = wheelMat;
-                }
-
-            root.GetComponent<RacerView>().body = body.transform;
-            var prefab = PrefabUtility.SaveAsPrefabAsset(root, CarPrefabPath);
-            Object.DestroyImmediate(root);
-            return prefab;
         }
 
         static Material Mat(string name, Color color)

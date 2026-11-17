@@ -56,6 +56,13 @@ namespace ApexBrake.Editor
                     {
                         string path = $"{MatDir}/Car_{n++}.mat";
                         AssetDatabase.DeleteAsset(path);
+                        var tex = mats[i].mainTexture;
+                        if (tex != null && !AssetDatabase.Contains(tex))
+                        {
+                            string tp = $"{MatDir}/{tex.name}.asset";
+                            AssetDatabase.DeleteAsset(tp);
+                            AssetDatabase.CreateAsset(tex, tp);
+                        }
                         AssetDatabase.CreateAsset(mats[i], path);
                         asset = mats[i];
                         saved[mats[i]] = asset;

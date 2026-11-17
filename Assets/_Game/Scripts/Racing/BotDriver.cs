@@ -21,6 +21,8 @@ namespace ApexBrake.Racing
         public static float ReferenceBrake = 21f;
         /// <summary>Yerçekimi kanaati (aracın ağırlık hissi; tepe/tümsek için) (m/s²).</summary>
         public const float FeltGravity = 24f;
+        /// <summary>Dış kenara hiç yer kalmamışken tutunma kanaatinin çarpanı (yer arttıkça 1'e çıkar).</summary>
+        public const float OutsideCaution = 0.75f;
 
         public BotProfile Profile;
         public TrackBuilder Track;
@@ -192,7 +194,10 @@ namespace ApexBrake.Racing
                     float c = path.CurvatureAt(s);
                     if (Mathf.Abs(c) < 0.004f) continue;
                     float r = 1f / Mathf.Abs(c) - Mathf.Sign(c) * lineLat;
-                    allow = Mathf.Sqrt(_grip[k] * Mathf.Max(r, 5f));
+                    // Dış kenara az yer kaldıysa (dış şerit) daha temkinli: kayarsa gidecek yer yok.
+                    float room = path.HalfWidthAt(s) + TrackPieceGeometry.ShoulderWidth + Mathf.Sign(c) * lineLat - 1f;
+                    float caution = Mathf.Lerp(OutsideCaution, 1f, Mathf.Clamp01(room / 6f));
+                    allow = Mathf.Sqrt(_grip[k] * caution * Mathf.Max(r, 5f));
                 }
                 else if (span.Def.Kind == PieceKind.Bump)
                 {

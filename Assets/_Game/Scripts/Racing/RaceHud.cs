@@ -1,36 +1,42 @@
 using TMPro;
 using UnityEngine;
-using ApexBrake.Simulation;
 
 namespace ApexBrake.Racing
 {
-    /// <summary>Geri sayım, sıra, hız, geri bildirim metni ve fren göstergesi. Güvenli alanı da uygular.</summary>
+    /// <summary>
+    /// Geri sayım, sıra, hız (km/s), geri bildirim metni (KAYIYORSUN / HAVADA / TEMAS), sollama göstergesi ve fren şeridi.
+    /// Yalnızca sunumdur: telemetriyi ve RaceManager olaylarını okur. Güvenli alanı da uygular.
+    /// </summary>
     public sealed class RaceHud : MonoBehaviour
     {
-        public RaceController controller;
+        public RaceManager race;
+        public TouchBrakeInput input;
         public RectTransform safeArea;            // tüm HUD öğelerinin ebeveyni; Screen.safeArea'ya oturtulur
         public TMP_Text countdownText;
         public TMP_Text rankText;
         public TMP_Text speedText;
         public TMP_Text feedbackText;
-        public TMP_Text overtakeText;             // sollarken küçük SOLLAMA göstergesi
+        public TMP_Text overtakeText;             // sollarken SOLLAMA
         public UnityEngine.UI.Image brakeBar;
 
         public const float GoDuration = 0.7f;
-        public const float FeedbackDuration = 0.9f;
+        public const float ContactDuration = 0.9f;
         public const string SlideText = "KAYIYORSUN";
+        public const string AirText = "HAVADA";
+        public const string ContactText = "TEMAS";
 
-        RaceController _subscribed;
+        RaceManager _subscribed;
         Rect _lastSafe;
         Vector2Int _lastScreen;
         RaceState _lastState = RaceState.Ended;
-        float _goTimer;                // > 0 iken BASLA görünür
-        float _feedbackTimer;          // > 0 iken geri bildirim görünür
-        bool _sliding;                 // KAYIYORSUN: Recovered (ya da çakılma/bitiş) gelene kadar sürer
+        float _goTimer;
+        float _contactTimer;
+        float _slideHold;                         // kayma kısa kesilince metin titremesin
+        string _shownFeedback = "";
         bool _shownOvertake;
         int _shownCount = -1, _shownRank = -1, _shownRacers = -1, _shownSpeed = -1;
 
-        public string FeedbackText => feedbackText != null && _feedbackTimer > 0f ? feedbackText.text : "";
+        public string FeedbackText => _shownFeedback;
 
         void OnEnable() => Subscribe();
         void Start() { Subscribe(); ResetView(); }
@@ -38,70 +44,54 @@ namespace ApexBrake.Racing
         void OnDisable()
         {
             if (_subscribed == null) return;
-            _subscribed.RacerEvent -= OnRacerEvent;
             _subscribed.Restarted -= ResetView;
+            _subscribed.RacerContact -= OnContact;
             _subscribed = null;
         }
 
         void Subscribe()
         {
-            if (controller == null || _subscribed == controller) return;
+            if (race == null || _subscribed == race) return;
             OnDisable();
-            controller.RacerEvent += OnRacerEvent;
-            controller.Restarted += ResetView;
-            _subscribed = controller;
+            race.Restarted += ResetView;
+            race.RacerContact += OnContact;
+            _subscribed = race;
+        }
+
+        void OnContact(int a, int b, float v)
+        {
+            if (a == RaceManager.PlayerIndex || b == RaceManager.PlayerIndex) _contactTimer = ContactDuration;
         }
 
         void ResetView()
         {
-            _goTimer = 0f;
-            _feedbackTimer = 0f;
-            _sliding = false;
+            _goTimer = 0f; _contactTimer = 0f; _slideHold = 0f;
             _shownOvertake = false;
             if (overtakeText != null) { overtakeText.text = "SOLLAMA"; overtakeText.enabled = false; }
             _shownCount = _shownRank = _shownRacers = _shownSpeed = -1;
-            _lastState = controller != null ? controller.State : RaceState.Countdown;
-            if (feedbackText != null) { feedbackText.text = ""; feedbackText.alpha = 0f; }
+            _lastState = race != null ? race.State : RaceState.Countdown;
+            SetFeedback("");
             if (countdownText != null) countdownText.text = "";
             if (brakeBar != null) brakeBar.enabled = false;
         }
 
-        void OnRacerEvent(int index, SimEvent e)
+        void SetFeedback(string text)
         {
-            if (index != RaceController.PlayerIndex) return;
-            string msg = null;
-            switch (e.Kind)
-            {
-                case SimEventKind.PerfectBrake: msg = "PERFECT!"; break;
-                case SimEventKind.GoodBrake: msg = "GOOD"; break;
-                case SimEventKind.Skid: msg = SlideText; _sliding = true; break;
-                case SimEventKind.Light: msg = "HAVALANDIN"; break;
-                case SimEventKind.Recovered:
-                case SimEventKind.Crash:
-                case SimEventKind.FellShort:
-                case SimEventKind.Finished:
-                    // Kayma bitti: KAYIYORSUN hemen silinir (başka bir mesaj gösteriliyorsa ona dokunulmaz).
-                    if (_sliding && feedbackText != null && feedbackText.text == SlideText) { feedbackText.text = ""; _feedbackTimer = 0f; }
-                    _sliding = false;
-                    break;
-                case SimEventKind.RearHit:
-                case SimEventKind.SideHit: msg = "TEMAS"; break;
-            }
-            if (msg == null || feedbackText == null) return;
-            feedbackText.text = msg;
-            _feedbackTimer = FeedbackDuration;
+            if (feedbackText == null || text == _shownFeedback) return;
+            _shownFeedback = text;
+            feedbackText.text = text;
         }
 
         void Update()
         {
             ApplySafeArea();
-            var c = controller;
-            if (c == null || c.Race == null) return;
+            var c = race;
+            if (c == null || c.Racers.Count == 0) return;
             Subscribe();
             float dt = Time.unscaledDeltaTime;
 
             // Geri sayım: 3, 2, 1, sonra 0,7 sn BASLA
-            if (c.State == RaceState.Racing && _lastState == RaceState.Countdown) _goTimer = GoDuration;
+            if (c.State != RaceState.Countdown && _lastState == RaceState.Countdown) _goTimer = GoDuration;
             _lastState = c.State;
             if (countdownText != null)
             {
@@ -119,39 +109,42 @@ namespace ApexBrake.Racing
                 else if (_shownCount != -2) { _shownCount = -2; countdownText.text = ""; }
             }
 
-            var player = c.Race.Racers[RaceController.PlayerIndex];
-            int racers = c.Race.Racers.Count;
+            var player = c.Player;
+            int racers = c.Racers.Count;
             if (rankText != null && (player.Rank != _shownRank || racers != _shownRacers))
             {
                 _shownRank = player.Rank; _shownRacers = racers;
                 rankText.text = player.Rank + " / " + racers;
             }
 
-            int speed = Mathf.RoundToInt(player.Car.Speed);
+            var tel = player.Telemetry;
+            int speed = tel != null ? Mathf.RoundToInt(tel.SpeedKmh) : 0;
             if (speedText != null && speed != _shownSpeed)
             {
                 _shownSpeed = speed;
-                speedText.text = speed + " m/s";
+                speedText.text = speed + " km/s";
             }
 
-            if (feedbackText != null)
-            {
-                // Kayarken KAYIYORSUN tam görünür kalır.
-                if (_sliding && feedbackText.text == SlideText) _feedbackTimer = FeedbackDuration;
-                else if (_feedbackTimer > 0f) _feedbackTimer -= dt;
-                float k = Mathf.Clamp01(_feedbackTimer / FeedbackDuration);
-                feedbackText.alpha = Mathf.Clamp01(k * 2.5f);   // ilk %60 tam görünür, sonra solar
-                if (_feedbackTimer <= 0f && feedbackText.text.Length > 0) feedbackText.text = "";
-            }
+            // Geri bildirim: havada > kayma > temas
+            bool active = c.State == RaceState.Racing && !player.IsOut && !player.Finished;
+            if (_contactTimer > 0f) _contactTimer -= dt;
+            if (active && tel != null && tel.IsSliding) _slideHold = 0.35f; else _slideHold -= dt;
+            string fb = "";
+            if (active && tel != null && tel.IsAirborne) fb = AirText;
+            else if (active && _slideHold > 0f) fb = SlideText;
+            else if (_contactTimer > 0f && !player.IsOut) fb = ContactText;
+            SetFeedback(fb);
+            if (feedbackText != null && fb == ContactText) feedbackText.alpha = Mathf.Clamp01(_contactTimer / ContactDuration * 2.5f);
+            else if (feedbackText != null) feedbackText.alpha = 1f;
 
             if (overtakeText != null)
             {
-                bool show = c.State == RaceState.Racing && player.IsOvertaking && !player.Car.IsOut;
+                bool show = active && player.IsOvertaking;
                 if (show != _shownOvertake) { _shownOvertake = show; overtakeText.enabled = show; }
             }
 
             if (brakeBar != null)
-                brakeBar.enabled = c.State != RaceState.Ended && c.input != null && c.input.IsBraking;
+                brakeBar.enabled = c.State != RaceState.Ended && input != null && input.IsBraking;
         }
 
         void ApplySafeArea()

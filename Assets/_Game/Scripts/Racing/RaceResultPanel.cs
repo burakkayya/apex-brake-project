@@ -1,18 +1,16 @@
 using System.Globalization;
 using TMPro;
 using UnityEngine;
-using ApexBrake.Simulation;
 
 namespace ApexBrake.Racing
 {
-    /// <summary>Yarış bitince (Ended) açılır: sıra ya da ELENDIN, süre, Perfect/Good, 5 satır sıralama, TEKRAR düğmesi.</summary>
+    /// <summary>Yarış bitince (Ended) açılır: sıra ya da ELENDIN, süre, 5 satır sıralama (durum: Bitti / Yol disi / Takla / Dustu / Yarista), TEKRAR.</summary>
     public sealed class RaceResultPanel : MonoBehaviour
     {
-        public RaceController controller;
+        public RaceManager race;
         public GameObject panel;                 // açılıp kapanan kök (tam ekran, dokunuşları yutar)
         public TMP_Text titleText;
         public TMP_Text timeText;
-        public TMP_Text countsText;
         public TMP_Text[] rowRank;               // 5 satır: sıra
         public TMP_Text[] rowName;               //          ad
         public TMP_Text[] rowStatus;             //          durum
@@ -20,7 +18,7 @@ namespace ApexBrake.Racing
         public Color playerRowColor = new Color(1f, 0.85f, 0.3f);
         public Color rowColor = Color.white;
 
-        RaceController _subscribed;
+        RaceManager _subscribed;
 
         public bool IsOpen => panel != null && panel.activeSelf;
 
@@ -34,7 +32,7 @@ namespace ApexBrake.Racing
         void Start()
         {
             Subscribe();
-            if (controller != null && controller.State == RaceState.Ended) Show(); else Hide();
+            if (race != null && race.State == RaceState.Ended) Show(); else Hide();
         }
 
         void OnDisable()
@@ -47,16 +45,16 @@ namespace ApexBrake.Racing
 
         void Subscribe()
         {
-            if (controller == null || _subscribed == controller) return;
+            if (race == null || _subscribed == race) return;
             OnDisable();
-            controller.Ended += Show;
-            controller.Restarted += Hide;
-            _subscribed = controller;
+            race.Ended += Show;
+            race.Restarted += Hide;
+            _subscribed = race;
         }
 
         void OnRetry()
         {
-            if (controller != null) controller.Restart();   // Restarted → Hide
+            if (race != null) race.Restart();   // Restarted → Hide
             Hide();
         }
 
@@ -65,35 +63,43 @@ namespace ApexBrake.Racing
             if (panel != null) panel.SetActive(false);
         }
 
-        void Show()
+        public void Show()
         {
-            var c = controller;
-            if (c == null || c.Race == null || panel == null) return;
-            var racers = c.Race.Racers;
-            var player = racers[RaceController.PlayerIndex];
+            var c = race;
+            if (c == null || c.Racers.Count == 0 || panel == null) return;
+            var racers = c.Racers;
+            var player = c.Player;
             var inv = CultureInfo.InvariantCulture;
 
-            titleText.text = player.Car.Phase == CarPhase.Finished ? player.Rank + "." : "ELENDIN";
+            titleText.text = player.Finished ? player.Rank + "." : "ELENDIN";
             timeText.text = c.ElapsedTime.ToString("0.0", inv) + " sn";
-            countsText.text = "Perfect: " + player.Car.PerfectCount + "  Good: " + player.Car.GoodCount;
 
             int rows = rowName != null ? rowName.Length : 0;
             for (int row = 0; row < rows; row++)
             {
-                int idx = -1;
+                RacerEntry e = null;
                 for (int i = 0; i < racers.Count; i++)
-                    if (racers[i].Rank == row + 1) { idx = i; break; }
-                bool has = idx >= 0;
-                var col = has && idx == RaceController.PlayerIndex ? playerRowColor : rowColor;
+                    if (racers[i].Rank == row + 1) { e = racers[i]; break; }
+                bool has = e != null;
+                var col = has && e.IsPlayer ? playerRowColor : rowColor;
                 SetRow(rowRank, row, has ? (row + 1) + "." : "", col);
-                SetRow(rowName, row, has ? racers[idx].Name : "", col);
-                SetRow(rowStatus, row, has ? Status(racers[idx].Car) : "", col);
+                SetRow(rowName, row, has ? e.Name : "", col);
+                SetRow(rowStatus, row, has ? Status(e) : "", col);
             }
             panel.SetActive(true);
         }
 
-        static string Status(CarSim car) =>
-            car.Phase == CarPhase.Finished ? "Bitti" : car.IsOut ? "Elendi" : "Yarista";
+        public static string Status(RacerEntry e)
+        {
+            if (e.Finished) return "Bitti";
+            if (!e.IsOut) return "Yarista";
+            switch (e.OutReason)
+            {
+                case OutReason.Flipped: return "Takla";
+                case OutReason.Fell: return "Dustu";
+                default: return "Yol disi";
+            }
+        }
 
         static void SetRow(TMP_Text[] texts, int row, string value, Color color)
         {

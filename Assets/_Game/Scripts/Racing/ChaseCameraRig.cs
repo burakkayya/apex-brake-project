@@ -1,301 +1,247 @@
 using UnityEngine;
-using Unity.Cinemachine;
-using ApexBrake.Simulation;
+using ApexBrake.Track;
 
 namespace ApexBrake.Racing
 {
     /// <summary>
-    /// Oyuncunun takip kamerası (spec §11.6). Cinemachine kamerasının takip ofsetini, görüş açısını ve yatmasını sürer;
-    /// sarsıntıyı ve elemedeki "takibi bırakma"yı kendi pipeline geri çağrısında uygular. Hepsi yumuşatılır.
-    /// FOV yalnızca burada yazılır. RacerView'dan sonra, CinemachineBrain'den önce çalışır.
+    /// Oyuncunun takip kamerası (spec §11.6): fizik gövdesini izler. Hız arttıkça uzaklaşır ve FOV genişler, yavaşlayınca
+    /// yaklaşır ve alçalır; frende hafif öne gelir; kayarken viraj dışına hafifçe kayar ve en çok 4° yatar; havadayken hafif
+    /// yukarı kalkar; temas ve sert inişte kısa sarsıntı; oyuncu oyun dışı kalınca takibi bırakıp durur, araca bakar ve
+    /// yakınlaşır; bitişte aracın yanına doğru döner. Yalnızca sunumdur, yarışın sonucunu etkilemez.
+    /// Kamera yönü aracın hız yönünü (burnunu değil) izler: kayan araç kadrajda yan döner, drift görünür.
     /// </summary>
-    [DefaultExecutionOrder(-40)]
-    [RequireComponent(typeof(CinemachineCamera))]
-    public sealed class ChaseCameraRig : CinemachineExtension
+    [DefaultExecutionOrder(100)]
+    [RequireComponent(typeof(Camera))]
+    public sealed class ChaseCameraRig : MonoBehaviour
     {
-        public RaceController controller;
-        public RacerView target;                        // oyuncu aracı
+        public RaceManager race;
 
         [Header("Hiz")]
-        public Vector3 slowOffset = new Vector3(0f, 6.5f, -11.5f);   // hız 0
-        public Vector3 fastOffset = new Vector3(0f, 8f, -15f);       // hız fastSpeed
-        public float fastSpeed = 30f;
-        public float fovSlow = 60f;
-        public float fovFast = 68f;
-        public float lookAtHeight = 2.6f;
+        public Vector3 slowOffset = new Vector3(0f, 4.2f, -8f);     // hız 0
+        public Vector3 fastOffset = new Vector3(0f, 5.6f, -11f);    // hız fastSpeed
+        [Tooltip("Geri sayımda: grid görünsün diye yüksek ve geride; start ile yarış ofsetine süzülür")]
+        public Vector3 countdownOffset = new Vector3(0f, 8.5f, -17f);
+        public float fastSpeed = 40f;                               // m/s
+        public float fovSlow = 62f;
+        public float fovFast = 78f;
+        public float lookHeight = 0.6f;                             // aracın üstünde bakılan nokta
+        public float lookAheadPerSpeed = 0.12f;                     // bakış noktası hızla öne kayar (m / (m/s))
 
         [Header("Fren")]
-        public float brakeCloser = 1.2f;                // ofset z'ye eklenir (yaklaşır)
+        public float brakeCloser = 0.9f;                            // ofset z'ye eklenir (yaklaşır)
         public float brakeFov = -2f;
 
         [Header("Kayma")]
-        public float slideShiftMax = 1.5f;              // m; SlipAngle yönünün tersine
-        public float slideDutchMax = 4f;                // derece
-        public float slipForFullEffect = 0.2f;          // rad; bu kayma açısında tam etki
+        public float slideShiftMax = 1.4f;                          // m; viraj dışına
+        public float slideDutchMax = 4f;                            // derece
+        public float slipForFullEffect = 20f;                       // derece
 
-        [Header("Boost")]
-        public float boostFov = 6f;
+        [Header("Havada")]
+        public float airLift = 0.8f;                                // m
 
         [Header("Sarsinti")]
-        public float shakeDuration = 0.25f;
-        public float shakeAmplitude = 0.25f;            // m, en çok
+        public float shakeDuration = 0.28f;
+        public float shakeAmplitude = 0.18f;                        // m, en çok
+        public float hardLandingSpeed = 5f;                         // m/s düşey hızla inince sarsıntı (yalnızca sunum)
 
         [Header("Eleme")]
-        public float crashStopTime = 0.6f;              // kamera bu sürede durur
-        public float crashFov = -8f;
+        public float outStopTime = 0.7f;
+        public float outFov = -14f;
 
         [Header("Bitis")]
-        public Vector3 finishOffset = new Vector3(6f, 4f, -8f);
-        public float finishTime = 1.5f;
+        public Vector3 finishOffset = new Vector3(5.5f, 2.6f, -5.5f);
+        public float finishTime = 1.6f;
 
         [Header("Yumusatma (sn)")]
-        public float offsetSmooth = 0.45f;
-        public float fovSmooth = 0.35f;
-        public float slideSmooth = 0.4f;
-        public float dutchSmooth = 0.4f;
+        public float positionSmooth = 0.12f;
+        public float yawSmooth = 0.28f;
+        public float offsetSmooth = 0.5f;
+        public float fovSmooth = 0.45f;
+        public float slideSmooth = 0.45f;
+        public float minRoadClearance = 1.4f;
 
-        CinemachineCamera _vcam;
-        CinemachineFollow _follow;
-        CinemachineHardLookAt _look;
-        RaceController _subscribed;
+        Camera _cam;
+        RaceManager _subscribed;
+        RacerEntry _player;
 
         Vector3 _offset, _offsetVel;
-        float _fov, _fovVel, _shift, _shiftVel, _dutch, _dutchVel;
-        float _shakeStart = -1f;
-        bool _snap;
+        float _fov, _fovVel, _shift, _shiftVel, _dutch, _dutchVel, _lift, _liftVel;
+        float _yaw, _yawVel;
+        Vector3 _pos, _posVel;
+        bool _snap = true;
+        float _shakeStart = -1f, _shakeScale = 1f;
+        bool _wasAir;
+        float _minAirVy;
 
-        // Eleme: kamera konumu kendi hızıyla süzülüp durur.
-        bool _crashed;
-        float _crashTime;
-        Vector3 _crashPos, _crashVel;
-        float _crashFovBase;
-        Vector3 _lastRaw, _lastRawVel;
-        bool _haveRaw;
+        bool _out; float _outTime; Vector3 _outVel; float _outFovBase;
+        bool _finished; float _finishStart; Vector3 _finishFrom;
 
-        // Bitiş: ofset 1,5 sn'de çapraza döner.
-        bool _finished;
-        float _finishTime;
-        Vector3 _finishFrom;
-
-        // Ölçüm (doğrulama için; oynanışa etkisi yok)
-        public Vector3 CurrentOffset => _offset + new Vector3(_shift, 0f, 0f);
+        // Ölçüm (doğrulama için)
+        public Vector3 CurrentOffset => _finished ? _offset : _offset + new Vector3(_shift, _lift, 0f);
         public float CurrentFov => _fov;
         public float CurrentDutch => _dutch;
-        public bool IsCrashView => _crashed;
-        public Vector3 CameraPosition { get; private set; }
-        public float MaxFrameStep { get; set; }         // kamera konumunun kare başına en büyük değişimi (m)
-        Vector3 _prevCamPos;
-        bool _havePrevCam;
+        public bool IsOutView => _out;
+        public bool IsFinishView => _finished;
 
-        protected override void Awake()
-        {
-            base.Awake();
-            CacheComponents();
-        }
-
-        void CacheComponents()
-        {
-            if (_vcam == null) _vcam = GetComponent<CinemachineCamera>();
-            if (_follow == null) _follow = GetComponent<CinemachineFollow>();
-            if (_look == null) _look = GetComponent<CinemachineHardLookAt>();
-        }
-
-        protected override void OnEnable()
-        {
-            base.OnEnable();
-            Subscribe();
-            ResetState(true);
-        }
-
-        void Start() => Subscribe();
+        void Awake() { _cam = GetComponent<Camera>(); }
+        void OnEnable() { Subscribe(); _snap = true; }
 
         void OnDisable()
         {
             if (_subscribed == null) return;
-            _subscribed.RacerEvent -= OnRacerEvent;
             _subscribed.Restarted -= OnRestarted;
+            _subscribed.RacerOut -= OnOut;
+            _subscribed.RacerFinished -= OnFinished;
+            _subscribed.RacerContact -= OnContact;
             _subscribed = null;
         }
 
         void Subscribe()
         {
-            if (controller == null || _subscribed == controller) return;
+            if (race == null || _subscribed == race) return;
             OnDisable();
-            controller.RacerEvent += OnRacerEvent;
-            controller.Restarted += OnRestarted;
-            _subscribed = controller;
+            race.Restarted += OnRestarted;
+            race.RacerOut += OnOut;
+            race.RacerFinished += OnFinished;
+            race.RacerContact += OnContact;
+            _subscribed = race;
         }
 
-        void OnRestarted() => ResetState(true);
+        void OnRestarted() { _snap = true; _out = false; _finished = false; _shakeStart = -1f; }
 
-        void ResetState(bool snap)
+        void OnOut(int i, OutReason r)
         {
-            CacheComponents();
-            _offset = slowOffset; _offsetVel = Vector3.zero;
-            _fov = fovSlow; _fovVel = 0f;
-            _shift = _shiftVel = _dutch = _dutchVel = 0f;
-            _shakeStart = -1f;
-            _crashed = false; _finished = false; _haveRaw = false; _havePrevCam = false;
-            if (_vcam != null && target != null)
-            {
-                _vcam.Target.TrackingTarget = target.transform;
-                _vcam.Target.LookAtTarget = target.transform;
-            }
-            if (_look != null) _look.LookAtOffset = new Vector3(0f, lookAtHeight, 0f);
-            _snap = snap;   // Faz 2 davranışı: araç konumlanınca kamera anında arkasına alınır
+            if (i != RaceManager.PlayerIndex || _out || _player == null) return;
+            _out = true; _outTime = Time.time; _outVel = _posVel; _outFovBase = _fov;
         }
 
-        void OnRacerEvent(int index, SimEvent e)
+        void OnFinished(int i)
         {
-            if (index != RaceController.PlayerIndex) return;
-            switch (e.Kind)
-            {
-                case SimEventKind.RearHit:
-                case SimEventKind.Bumped:
-                case SimEventKind.SideHit:
-                case SimEventKind.Light:
-                    _shakeStart = Time.time;
-                    break;
-                case SimEventKind.Crash:
-                case SimEventKind.FellShort:
-                    if (controller != null && controller.Player != null && controller.Player.Car.IsOut) BeginCrash();
-                    break;
-                case SimEventKind.Finished:
-                    _finished = true; _finishTime = Time.time; _finishFrom = _offset + new Vector3(_shift, 0f, 0f);
-                    _shift = 0f; _shiftVel = 0f;
-                    break;
-            }
+            if (i != RaceManager.PlayerIndex) return;
+            _finished = true; _finishStart = Time.time; _finishFrom = _offset + new Vector3(_shift, _lift, 0f);
         }
 
-        void BeginCrash()
+        void OnContact(int a, int b, float v)
         {
-            if (_crashed) return;
-            _crashed = true;
-            _crashTime = Time.time;
-            _crashPos = _haveRaw ? _lastRaw : transform.position;
-            _crashVel = _haveRaw ? _lastRawVel : Vector3.zero;
-            _crashFovBase = _fov;
-            if (_vcam != null && target != null) _vcam.Target.LookAtTarget = target.Body;
-            if (_look != null) _look.LookAtOffset = Vector3.zero;
+            if (a != RaceManager.PlayerIndex && b != RaceManager.PlayerIndex) return;
+            Shake(Mathf.Clamp01(v / 8f) * 0.8f + 0.3f);
         }
+
+        void Shake(float scale) { _shakeStart = Time.time; _shakeScale = scale; }
 
         void LateUpdate()
         {
-            var c = controller;
-            if (c == null || c.Race == null || target == null) return;
-            CacheComponents();
             Subscribe();
-            var car = c.Race.Racers[RaceController.PlayerIndex].Car;
-            float dt = Time.deltaTime;
-            if (car.IsOut && !_crashed) BeginCrash();   // olay kaçtıysa
+            if (race == null || race.Racers.Count == 0) return;
+            _player = race.Player;
+            var motor = _player.Motor; var tel = _player.Telemetry;
+            if (motor == null) return;
+            float dt = Mathf.Max(Time.deltaTime, 1e-4f);
+            var t = motor.transform;                       // interpolasyonlu gövde
+            Vector3 v = motor.Body.linearVelocity;
+            Vector3 flatV = new Vector3(v.x, 0f, v.z);
+            float speed = flatV.magnitude;
+            bool racing = race.State != RaceState.Countdown;
+            bool braking = racing && motor.Brake && motor.EngineOn && !_player.Finished;
 
-            bool braking = c.State == RaceState.Racing && c.Race.Racers[RaceController.PlayerIndex].IsBraking && !car.IsOut
-                           && car.Phase != CarPhase.Finished;
-            float sp = Mathf.Clamp01(car.Speed / Mathf.Max(fastSpeed, 0.01f));
+            if (_snap) { ResetTo(t, speed); }
 
-            // Ofset: hız + fren (yaklaşır), bitişte çapraz
-            if (_finished)
+            // Yön: hız yönü (yavaşken burun); dünya yukarısı korunur.
+            Vector3 fwd = t.forward; fwd.y = 0f;
+            Vector3 dir = speed > 4f ? flatV : fwd;
+            if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
+            float yawWant = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+            if (!_out) _yaw = Mathf.SmoothDampAngle(_yaw, yawWant, ref _yawVel, yawSmooth, Mathf.Infinity, dt);
+
+            float sp = Mathf.Clamp01(speed / Mathf.Max(fastSpeed, 0.01f));
+            Vector3 offWant = Vector3.Lerp(slowOffset, fastOffset, sp * sp * (3f - 2f * sp) * 0.5f + sp * 0.5f);
+            if (braking) offWant.z += brakeCloser;
+            if (race.State == RaceState.Countdown) offWant = countdownOffset;
+            _offset = Vector3.SmoothDamp(_offset, offWant, ref _offsetVel, offsetSmooth, Mathf.Infinity, dt);
+
+            float slip = tel != null && racing && !_out ? tel.SlipAngleDeg : 0f;
+            float s = tel != null && tel.IsSliding ? Mathf.Clamp(slip / slipForFullEffect, -1f, 1f) : 0f;
+            // SlipAngle + = hız burnun sağında → araç sola dönüyor, viraj dışı sağ; kamera dışa (hız tarafına) kayar.
+            _shift = Mathf.SmoothDamp(_shift, s * slideShiftMax, ref _shiftVel, slideSmooth, Mathf.Infinity, dt);
+            _dutch = Mathf.SmoothDamp(_dutch, -s * slideDutchMax, ref _dutchVel, slideSmooth, Mathf.Infinity, dt);
+            bool air = tel != null && tel.IsAirborne;
+            _lift = Mathf.SmoothDamp(_lift, air ? airLift : 0f, ref _liftVel, 0.35f, Mathf.Infinity, dt);
+
+            // Sert iniş sarsıntısı
+            if (air) _minAirVy = Mathf.Min(_minAirVy, v.y);
+            if (_wasAir && !air && tel.GroundedWheels > 0)
             {
-                float k = Mathf.Clamp01((Time.time - _finishTime) / Mathf.Max(finishTime, 0.01f));
-                k = k * k * (3f - 2f * k);
-                _offset = Vector3.Lerp(_finishFrom, finishOffset, k);
-                _offsetVel = Vector3.zero;
+                if (-_minAirVy >= hardLandingSpeed) Shake(Mathf.Clamp01(-_minAirVy / 12f) + 0.2f);
+                _minAirVy = 0f;
             }
-            else if (!_crashed)
-            {
-                Vector3 want = Vector3.Lerp(slowOffset, fastOffset, sp);
-                if (braking) want.z += brakeCloser;
-                _offset = _snap ? want : Vector3.SmoothDamp(_offset, want, ref _offsetVel, offsetSmooth, Mathf.Infinity, dt);
-            }
+            if (!air && tel != null && tel.GroundedWheels > 0) _minAirVy = 0f;
+            _wasAir = air;
 
-            // Kayma: SlipAngle yönünün tersine yanal kayma ve yatma; Recovered (faz Driving) sonrası 0'a döner.
-            float shiftWant = 0f, dutchWant = 0f;
-            if (!_crashed && !_finished && car.Phase == CarPhase.Skidding)
-            {
-                float s = Mathf.Clamp(car.SlipAngle / Mathf.Max(slipForFullEffect, 1e-3f), -1f, 1f);
-                shiftWant = -s * slideShiftMax;
-                dutchWant = s * slideDutchMax;
-            }
-            if (!_finished) _shift = _snap ? shiftWant : Mathf.SmoothDamp(_shift, shiftWant, ref _shiftVel, slideSmooth, Mathf.Infinity, dt);
-            _dutch = _snap ? dutchWant : Mathf.SmoothDamp(_dutch, dutchWant, ref _dutchVel, dutchSmooth, Mathf.Infinity, dt);
-
-            // FOV: hız + fren + boost (+ eleme)
             float fovWant = Mathf.Lerp(fovSlow, fovFast, sp);
             if (braking) fovWant += brakeFov;
-            if (car.IsBoosting) fovWant += boostFov;
-            if (_crashed) fovWant = _crashFovBase + crashFov;
-            _fov = _snap ? fovWant : Mathf.SmoothDamp(_fov, fovWant, ref _fovVel, fovSmooth, Mathf.Infinity, dt);
+            if (_out) fovWant = _outFovBase + outFov * Mathf.Clamp01((Time.time - _outTime) / 2.5f);
+            _fov = Mathf.SmoothDamp(_fov, fovWant, ref _fovVel, fovSmooth, Mathf.Infinity, dt);
 
-            if (_follow != null) _follow.FollowOffset = _offset + new Vector3(_shift, 0f, 0f);
-            if (_vcam != null)
+            var yawRot = Quaternion.Euler(0f, _yaw, 0f);
+            Vector3 carPos = t.position;
+            Vector3 lookAt = carPos + Vector3.up * lookHeight + dir.normalized * Mathf.Min(speed * lookAheadPerSpeed, 5f);
+
+            if (_out)
             {
-                var lens = _vcam.Lens;
-                lens.FieldOfView = _fov;
-                lens.Dutch = _dutch;
-                _vcam.Lens = lens;
+                // Takibi bırak: elendiği andaki hızla süzülüp dur; araca bak.
+                float k = Mathf.Clamp01((Time.time - _outTime) / Mathf.Max(outStopTime, 0.01f));
+                _pos += _outVel * (1f - k) * dt;
+                _posVel = Vector3.zero;
+                lookAt = motor.Body.worldCenterOfMass;
+            }
+            else
+            {
+                Vector3 off;
+                if (_finished)
+                {
+                    float k = Mathf.Clamp01((Time.time - _finishStart) / Mathf.Max(finishTime, 0.01f));
+                    k = k * k * (3f - 2f * k);
+                    off = Vector3.Lerp(_finishFrom, finishOffset, k);
+                    lookAt = carPos + Vector3.up * lookHeight;
+                }
+                else off = _offset + new Vector3(_shift, _lift, 0f);
+                Vector3 want = carPos + yawRot * off;
+                _pos = Vector3.SmoothDamp(_pos, want, ref _posVel, positionSmooth, Mathf.Infinity, dt);
             }
 
-            if (_snap) Snap();
+            // Yol yüzeyine gömülme: kamera altındaki yüzeyin en az minRoadClearance üstünde kalır.
+            if (Physics.Raycast(_pos + Vector3.up * 30f, Vector3.down, out var hit, 60f, TrackLayers.SurfaceMask, QueryTriggerInteraction.Ignore))
+                if (_pos.y < hit.point.y + minRoadClearance) _pos.y = hit.point.y + minRoadClearance;
+
+            Vector3 shake = Vector3.zero;
+            if (_shakeStart >= 0f)
+            {
+                float st = Time.time - _shakeStart;
+                if (st < shakeDuration)
+                {
+                    float env = 1f - st / shakeDuration;
+                    float w = st * 2f * Mathf.PI;
+                    shake = new Vector3(Mathf.Sin(w * 23f), Mathf.Sin(w * 31f + 1.3f) * 0.7f, 0f) * (shakeAmplitude * _shakeScale * env);
+                }
+                else _shakeStart = -1f;
+            }
+
+            var rot = Quaternion.LookRotation(lookAt - _pos, Vector3.up) * Quaternion.Euler(0f, 0f, _dutch);
+            transform.SetPositionAndRotation(_pos + rot * shake, rot);
+            _cam.fieldOfView = _fov;
         }
 
-        void Snap()
+        void ResetTo(Transform t, float speed)
         {
             _snap = false;
-            if (_vcam == null || target == null) return;
-            var t = target.transform;
-            var yaw = Quaternion.Euler(0f, t.eulerAngles.y, 0f);
-            Vector3 camPos = t.position + yaw * (_offset + new Vector3(_shift, 0f, 0f));
-            var look = t.position + Vector3.up * lookAtHeight - camPos;
-            _vcam.ForceCameraPosition(camPos, Quaternion.LookRotation(look, Vector3.up));
-            _vcam.PreviousStateIsValid = false;
-            _haveRaw = false; _havePrevCam = false;
-        }
-
-        protected override void PostPipelineStageCallback(CinemachineVirtualCameraBase vcam,
-            CinemachineCore.Stage stage, ref CameraState state, float deltaTime)
-        {
-            if (stage == CinemachineCore.Stage.Body)
-            {
-                if (_crashed)
-                {
-                    // Takibi bırak: elendiği andaki hızla süzül, crashStopTime'da dur.
-                    float t = Time.time - _crashTime;
-                    float stop = Mathf.Max(crashStopTime, 0.01f);
-                    if (deltaTime > 0f && t < stop)
-                    {
-                        float k0 = Mathf.Clamp01((t - deltaTime) / stop), k1 = Mathf.Clamp01(t / stop);
-                        // hız doğrusal azalır: konum = v · stop · (k − k²/2)
-                        float a0 = k0 - k0 * k0 * 0.5f, a1 = k1 - k1 * k1 * 0.5f;
-                        _crashPos += _crashVel * stop * (a1 - a0);
-                    }
-                    state.RawPosition = _crashPos;
-                }
-                else if (deltaTime > 0f)
-                {
-                    if (_haveRaw) _lastRawVel = (state.RawPosition - _lastRaw) / deltaTime;
-                    _lastRaw = state.RawPosition;
-                    _haveRaw = true;
-                }
-            }
-            else if (stage == CinemachineCore.Stage.Noise)
-            {
-                if (_shakeStart >= 0f && !_crashed)
-                {
-                    float t = Time.time - _shakeStart;
-                    if (t < shakeDuration)
-                    {
-                        float env = 1f - t / shakeDuration;       // sönümlü
-                        float w = t * 2f * Mathf.PI;
-                        var local = new Vector3(Mathf.Sin(w * 23f), Mathf.Sin(w * 31f + 1.3f) * 0.6f, 0f) * (shakeAmplitude * env);
-                        state.PositionCorrection += state.RawOrientation * local;
-                    }
-                    else _shakeStart = -1f;
-                }
-                Vector3 p = state.GetCorrectedPosition();
-                if (_havePrevCam && deltaTime > 0f) MaxFrameStep = Mathf.Max(MaxFrameStep, (p - _prevCamPos).magnitude);
-                _prevCamPos = p; _havePrevCam = true;
-                CameraPosition = p;
-            }
+            Vector3 fwd = t.forward; fwd.y = 0f;
+            if (fwd.sqrMagnitude < 1e-4f) fwd = Vector3.forward;
+            _yaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg; _yawVel = 0f;
+            _offset = race != null && race.State == RaceState.Countdown ? countdownOffset : slowOffset; _offsetVel = Vector3.zero;
+            _fov = fovSlow; _fovVel = 0f;
+            _shift = _shiftVel = _dutch = _dutchVel = _lift = _liftVel = 0f;
+            _pos = t.position + Quaternion.Euler(0f, _yaw, 0f) * _offset; _posVel = Vector3.zero;
+            _wasAir = false; _minAirVy = 0f;
         }
     }
 }

@@ -136,6 +136,21 @@ namespace ApexBrake.Racing
             }
         }
 
+        /// <summary>Geliştirme/çekim kancası: oyuncu aracını bir bot (Master profili) sürsün ya da sürmesin. Sonraki Restart'ta geçerli.</summary>
+        public void SetPlayerAutopilot(bool on)
+        {
+            playerAutopilot = on;
+            var e = Player;
+            if (e == null) return;
+            if (on && e.Bot == null)
+            {
+                var bot = e.Motor.gameObject.AddComponent<BotDriver>();
+                bot.Track = track; bot.Profile = ProfileFor(PlayerIndex);
+                e.Bot = bot;
+            }
+            else if (!on && e.Bot != null) { Destroy(e.Bot); e.Bot = null; }
+        }
+
         /// <summary>Bu yarışta başlattığı sollama sayısı.</summary>
         public int OvertakeCount(int racer) => _planner != null ? _planner.OvertakeCount(racer) : 0;
 
@@ -384,6 +399,7 @@ namespace ApexBrake.Racing
             var order = new List<RacerEntry>(_racers);
             order.Sort((a, b) =>
             {
+                if (State == RaceState.Countdown) return a.Index.CompareTo(b.Index);   // gridde: oyuncu önde sayılır
                 if (a.Finished != b.Finished) return a.Finished ? -1 : 1;
                 if (a.Finished && a.FinishTime != b.FinishTime) return a.FinishTime.CompareTo(b.FinishTime);
                 int c = b.Distance.CompareTo(a.Distance);

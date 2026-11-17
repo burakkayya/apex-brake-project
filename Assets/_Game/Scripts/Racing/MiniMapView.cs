@@ -5,14 +5,14 @@ namespace ApexBrake.Racing
     /// <summary>Sol kenarda dikey ilerleme çubuğu: altı start, üstü bitiş. Her yarışçı bir nokta; oyuncu noktası en üstte.</summary>
     public sealed class MiniMapView : MonoBehaviour
     {
-        public RaceController controller;
+        public RaceManager race;
         public RectTransform bar;                        // noktaların ebeveyni (yükseklik = ilerleme ekseni)
         public UnityEngine.UI.Image[] dots;              // indeks = yarışçı; oyuncu noktası (0) hiyerarşide en sonda
         public float eliminatedAlpha = 0.35f;
         public float laneSpacing = 16f;                  // px; noktalar ev şeridine göre yana kayar, yakın araçlar üst üste binmesin
 
         Color[] _baseColors;
-        RaceController _subscribed;
+        RaceManager _subscribed;
 
         void Awake()
         {
@@ -32,10 +32,10 @@ namespace ApexBrake.Racing
 
         void Subscribe()
         {
-            if (controller == null || _subscribed == controller) return;
+            if (race == null || _subscribed == race) return;
             OnDisable();
-            controller.Restarted += ResetView;
-            _subscribed = controller;
+            race.Restarted += ResetView;
+            _subscribed = race;
         }
 
         void ResetView()
@@ -51,36 +51,34 @@ namespace ApexBrake.Racing
                 }
                 SetProgress(dots[i].rectTransform, 0f, 0f);
             }
-            if (dots.Length > RaceController.PlayerIndex && dots[RaceController.PlayerIndex] != null)
+            if (dots.Length > RaceManager.PlayerIndex && dots[RaceManager.PlayerIndex] != null)
             {
-                var t = dots[RaceController.PlayerIndex].transform;
+                var t = dots[RaceManager.PlayerIndex].transform;
                 (t.parent != bar ? t.parent : t).SetAsLastSibling();   // oyuncu noktası en üstte çizilir
             }
         }
 
         void LateUpdate()
         {
-            var c = controller;
-            if (c == null || c.Race == null || c.track == null || c.track.Layout == null || dots == null) return;
+            var c = race;
+            if (c == null || c.track == null || c.track.Path == null || dots == null) return;
             Subscribe();
-            float total = c.track.Layout.TotalLength;
-            float alpha = c.State == RaceState.Racing ? c.Clock.Alpha : 1f;
-            int n = Mathf.Min(dots.Length, c.Race.Racers.Count);
+            float total = c.track.Path.TotalLength;
+            int n = Mathf.Min(dots.Length, c.Racers.Count);
             for (int i = 0; i < n; i++)
             {
                 if (dots[i] == null) continue;
-                var r = c.Race.Racers[i];
-                float d = Mathf.Lerp(c.PrevDistance(i), r.Car.Distance, alpha);
-                SetProgress(dots[i].rectTransform, total > 0f ? d / total : 0f, (r.HomeLane - 2) * laneSpacing);
+                var r = c.Racers[i];
+                SetProgress(dots[i].rectTransform, total > 0f ? r.Distance / total : 0f, (r.HomeLane - 2) * laneSpacing);
                 var col = _baseColors[i];
-                if (r.Car.IsOut) col.a *= eliminatedAlpha;
+                if (r.IsOut) col.a *= eliminatedAlpha;
                 if (dots[i].color != col)
                 {
                     dots[i].color = col;
                     // Oyuncunun beyaz çerçevesi de aynı saydamlığı alır.
                     if (dots[i].transform.parent != bar && dots[i].transform.parent.TryGetComponent(out UnityEngine.UI.Image ring))
                     {
-                        var rc = ring.color; rc.a = r.Car.IsOut ? eliminatedAlpha : 1f; ring.color = rc;
+                        var rc = ring.color; rc.a = r.IsOut ? eliminatedAlpha : 1f; ring.color = rc;
                     }
                 }
             }

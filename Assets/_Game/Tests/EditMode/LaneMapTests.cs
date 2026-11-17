@@ -8,8 +8,8 @@ namespace ApexBrake.Tests.EditMode
     public sealed class LaneMapTests
     {
         static TrackPieceDef S(float len, int lanes = 5) => new TrackPieceDef { Kind = PieceKind.Straight, Length = len, LaneCount = lanes };
-        static TrackPieceDef C(float len, float safe, int lanes = 5) =>
-            new TrackPieceDef { Kind = PieceKind.Corner, Length = len, SafeSpeed = safe, LaneCount = lanes, TurnSign = 1 };
+        static TrackPieceDef C(float len, float radius, int lanes = 5) =>
+            new TrackPieceDef { Kind = PieceKind.Corner, Length = len, Radius = radius, LaneCount = lanes, TurnSign = 1 };
 
         static void AssertMap(int laneCount, params int[] expected)
         {

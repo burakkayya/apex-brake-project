@@ -162,7 +162,7 @@ namespace ApexBrake.Tests.PlayMode
             float target = r[0].Lateral, maxLat = 0f;
             yield return r.Run(6f, null, () =>
             {
-                target = Mathf.Min(hw + 0.5f, target + 2f * 0.02f);
+                target = Mathf.Min(hw + 0.1f, target + 2f * 0.02f);   // takip ~0,5 m dışa taşar: merkez ≈ hw + 0,6, dış tekerler banket üstünde
                 r[0].TargetLateralOverride = target;
                 maxLat = Mathf.Max(maxLat, r[0].Lateral);
             });
@@ -174,7 +174,9 @@ namespace ApexBrake.Tests.PlayMode
             r[0].TargetLateralOverride = null;
             yield return r.Run(2f);
             Assert.Greater(maxLat, hw + 0.3f, "precondition: car was on the shoulder");
-            Assert.IsFalse(r.Outs.Any(o => o.racer == 0));
+            Assert.Less(maxLat, hw + TrackPieceGeometry.ShoulderWidth - 0.85f, "precondition: wheels stayed on the shoulder");
+            string outs = string.Join(", ", r.Outs.Select(o => $"{o.racer}:{o.reason}@{o.t:0.00}"));
+            Assert.IsFalse(r.Outs.Any(o => o.racer == 0), $"outs {outs}; maxLat {maxLat:0.00} hw {hw:0.00}");
             Assert.IsFalse(r[0].IsOut);
             Assert.Less(Mathf.Abs(r[0].Lateral - LaneMap.LateralOffset(2, 5, 3.2f)), 1f, "back on its line");
         }
