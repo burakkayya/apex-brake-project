@@ -159,3 +159,5 @@ Diğer staging yarışları: otopilot 42,18 sn (1.) ve 43,12 sn (Sen/Master/Reck
 ### Kod taraması (Step 4)
 
 `Assets/_Game/Scripts` içinde `SafeSpeed`, `MinJumpSpeed`, `CornerLimit`, `Perfect`, `Boost` araması: **boş**. Kalan hız karşılaştırmaları / hız kullanımları: `BotDriver` (sürücü muhakemesi: virajda tahmini hız ve fren mesafesi, `vv <= allow`), `OvertakePlanner` (çizgi seçimi: öndeki araç belirgin yavaş mı), `RaceManager` (izlenen çizginin kayma hızı ileri hızla ölçeklenir; sollama planlayıcısına hız girdisi), `VehicleMotor` (motor itiş eğrisi `1 − (v/tavan)²`; `PlaceAt` hızı sıfırlar — start/yeniden doğma), `VehicleTelemetry` / `RaceHud` / `ChaseCameraRig` / `VehicleVisual` (sunum: km/s, kayma, kamera, duman), `LineDriver` (bakış mesafesi hızla ölçeklenir), `DevDriveSession` / `RaceStaging` (geliştirme). Hiçbir oyun kuralı (oyun dışı, sıra, bitiş) hız karşılaştırmaz; `OutDetector` yalnızca temas, yükseklik, yönelim ve süre kullanır.
+
+Task 5: complete — lider doğrulaması (2026-11-17): EditMode 34/34, PlayMode 62/62; kod taraması boş; APK 43,7 MB derlendi (cihazda denenmedi). Ajan limit nedeniyle son raporu veremeden kesildi; commit edde947.
