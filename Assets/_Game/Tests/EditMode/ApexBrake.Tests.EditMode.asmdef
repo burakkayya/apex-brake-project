@@ -3,6 +3,7 @@
   "rootNamespace": "ApexBrake.Tests.EditMode",
   "references": [
     "ApexBrake.Simulation",
+    "ApexBrake.Racing",
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner"
   ],

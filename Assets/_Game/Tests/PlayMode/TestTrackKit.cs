@@ -62,6 +62,25 @@ namespace ApexBrake.Tests.PlayMode
 
         public TrackBuilder Build(params TrackPieceAsset[] pieces) => Build(Vector3.zero, 0f, pieces);
 
+        /// <summary>GrayboxLayouts kimliklerinden parça (Straight50, CornerR90_R40, Narrow3_60, Ramp, Bump ...).</summary>
+        public TrackPieceAsset ById(string id)
+        {
+            if (id.StartsWith("Straight")) return Straight(float.Parse(id.Substring(8), System.Globalization.CultureInfo.InvariantCulture));
+            if (id.StartsWith("Narrow")) return Straight(60f, id[6] - '0');
+            if (id.StartsWith("Corner")) return Corner(float.Parse(id.Substring(id.IndexOf("_R", StringComparison.Ordinal) + 2), System.Globalization.CultureInfo.InvariantCulture), id[6] == 'R');
+            if (id == "Ramp") return Ramp();
+            if (id == "Bump") return Bump();
+            throw new ArgumentException("unknown piece id " + id);
+        }
+
+        /// <summary>Gri kutu tarifinin eşdeğeri (ör. GrayboxLayouts.Race).</summary>
+        public TrackBuilder BuildLayout(string[] ids)
+        {
+            var pieces = new TrackPieceAsset[ids.Length];
+            for (int i = 0; i < ids.Length; i++) pieces[i] = ById(ids[i]);
+            return Build(pieces);
+        }
+
         public void Dispose()
         {
             for (int i = _objects.Count - 1; i >= 0; i--)

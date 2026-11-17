@@ -61,17 +61,8 @@ namespace ApexBrake.Editor
                     a => { a.laneCount = n; });
             }
 
-            WriteRecipe(LevelDir + "/Recipe_Graybox.asset", pieces, new[]
-            {
-                "Straight100", "CornerR90_R40", "Straight100", "Bump", "Straight50", "CornerL90_R25", "Straight100", "Ramp",
-                "Straight100", "CornerL90_R40", "Straight50", "CornerR90_R25", "Straight100", "Ramp", "Straight50", "CornerR90_R40", "Straight100",
-            });
-            WriteRecipe(LevelDir + "/Recipe_Graybox_Race.asset", pieces, new[]
-            {
-                "Straight100", "CornerR90_R40", "Straight100", "Narrow3_60", "Straight50", "Bump", "Straight50", "CornerL90_R25",
-                "Straight100", "Ramp", "Straight100", "Narrow2_60", "Straight50", "CornerL90_R40", "Straight50", "CornerR90_R25",
-                "Straight100", "Ramp", "Straight50", "CornerR90_R40", "Straight100",
-            });
+            WriteRecipe(LevelDir + "/Recipe_Graybox.asset", pieces, GrayboxLayouts.Short);
+            WriteRecipe(LevelDir + "/Recipe_Graybox_Race.asset", pieces, GrayboxLayouts.Race);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[GrayboxPieceFactory] Parçalar, Recipe_Graybox ve Recipe_Graybox_Race üretildi.");

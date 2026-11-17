@@ -27,8 +27,13 @@ namespace ApexBrake.Racing
         public OutReason OutReason { get; internal set; }
         public bool IsRespawning { get; internal set; }
         public OutPolicy Policy { get; internal set; }
+        /// <summary>Sollama planlayıcısı şu an önündeki yavaş aracın yanından geçiyor.</summary>
+        public bool IsOvertaking { get; internal set; }
+        /// <summary>Botun sürücüsü (oyuncuda yalnızca otopilotta dolu).</summary>
+        public BotDriver Bot { get; internal set; }
 
         internal int Index;
+        internal float LineTarget;          // kademeli izlenen çizgi (planlanan çizgiye doğru)
         internal readonly OutDetector Detector = new OutDetector();
         internal float OutElapsed;          // oyun dışı kalalı geçen süre
         internal bool CollisionsDisabled;

@@ -26,6 +26,16 @@ namespace ApexBrake.Racing
         [Tooltip("Araç başına yükseltme (dizin = yarışçı); boşsa taban")]
         public VehicleUpgrades[] racerUpgrades;
         public float startDistance = 10f;
+        [Tooltip("Yarışçı sayısı (en çok 5; testler için daha az)")]
+        public int racerCount = RacerCount;
+        [Tooltip("Ev şeritleri (dizin = yarışçı); boşsa 2,0,1,3,4")]
+        public int[] homeLanes;
+        [Tooltip("Yarış tohumu; 0 = her yeniden başlatmada yeni")]
+        public int raceSeed;
+        [Tooltip("Bot profilleri (dizin = yarışçı; 0 yok sayılır); boşsa Master, Balanced, Reckless, Slow")]
+        public BotProfile[] botProfiles;
+        [Tooltip("Geliştirme/çekim kancası: oyuncu aracını da bir bot sürer (Master profili)")]
+        public bool playerAutopilot;
 
         public const int PlayerIndex = 0;
         public const int RacerCount = 5;
@@ -44,6 +54,9 @@ namespace ApexBrake.Racing
 
         readonly List<RacerEntry> _racers = new List<RacerEntry>();
         readonly SimTuning _lanes = new SimTuning();
+        OvertakePlanner _planner;
+        TrafficCar[] _traffic;
+        uint _seedCounter = (uint)System.Environment.TickCount;
         int _generation;
         float _raceTime;
         float _endTimer = -1f;
@@ -53,6 +66,7 @@ namespace ApexBrake.Racing
         public float CountdownRemaining { get; private set; }
         /// <summary>Oyuncunun yarış süresi; oyuncu bitirince ya da elenince durur.</summary>
         public float ElapsedTime { get; private set; }
+        public int CurrentSeed { get; private set; }
         public RacerEntry Player => _racers.Count > 0 ? _racers[PlayerIndex] : null;
 
         public event Action<int, OutReason> RacerOut;
@@ -73,9 +87,10 @@ namespace ApexBrake.Racing
 
         void EnsureRacers()
         {
-            if (_racers.Count == RacerCount) return;
+            int count = Mathf.Clamp(racerCount, 1, RacerCount);
+            if (_racers.Count == count) return;
             var cfg = vehicleConfig != null ? vehicleConfig : ScriptableObject.CreateInstance<VehicleConfig>();
-            for (int i = 0; i < RacerCount; i++)
+            for (int i = 0; i < count; i++)
             {
                 VehicleMotor motor;
                 if (carPrefab != null)
@@ -89,14 +104,40 @@ namespace ApexBrake.Racing
                 relay.Manager = this; relay.Index = i;
                 var e = new RacerEntry
                 {
-                    Index = i, Name = Names[i], IsPlayer = i == PlayerIndex, HomeLane = Lanes[i],
+                    Index = i, Name = Names[i], IsPlayer = i == PlayerIndex,
+                    HomeLane = homeLanes != null && i < homeLanes.Length ? homeLanes[i] : Lanes[i],
                     Motor = motor, Driver = motor.GetComponent<LineDriver>(), Telemetry = motor.GetComponent<VehicleTelemetry>(),
                     Colliders = motor.GetComponentsInChildren<Collider>(true),
                 };
                 e.Driver.Path = track.Path;
+                if (!e.IsPlayer || playerAutopilot)
+                {
+                    var bot = motor.gameObject.AddComponent<BotDriver>();
+                    bot.Track = track;
+                    bot.Profile = ProfileFor(i);
+                    e.Bot = bot;
+                }
                 _racers.Add(e);
             }
+            _planner = new OvertakePlanner(count);
+            _traffic = new TrafficCar[count];
         }
+
+        BotProfile ProfileFor(int i)
+        {
+            if (botProfiles != null && i < botProfiles.Length && botProfiles[i] != null && i != PlayerIndex) return botProfiles[i];
+            switch (i)
+            {
+                case 1: return BotProfile.Master();
+                case 2: return BotProfile.Balanced();
+                case 3: return BotProfile.Reckless();
+                case 4: return BotProfile.Slow();
+                default: return BotProfile.Master();
+            }
+        }
+
+        /// <summary>Bu yarışta başlattığı sollama sayısı.</summary>
+        public int OvertakeCount(int racer) => _planner != null ? _planner.OvertakeCount(racer) : 0;
 
         static void Tint(VehicleMotor m, Color c)
         {
@@ -119,14 +160,19 @@ namespace ApexBrake.Racing
             if (track.Path == null) track.Build();
             EnsureRacers();
             SetAllCollisions(true);
+            _planner.Reset();
+            CurrentSeed = raceSeed != 0 ? raceSeed : (int)(NextSeed() & 0x7fffffff) | 1;
             foreach (var e in _racers)
             {
                 e.Finished = false; e.FinishTime = 0f; e.IsOut = false; e.OutReason = OutReason.None; e.IsRespawning = false;
                 e.OutElapsed = 0f; e.CollisionsDisabled = false; e.Detector.Reset();
                 e.Policy = e.IsPlayer ? playerPolicy : botPolicy;
                 e.Driver.Path = track.Path;
-                var ups = racerUpgrades != null && e.Index < racerUpgrades.Length ? racerUpgrades[e.Index] : VehicleUpgrades.Base;
+                var ups = racerUpgrades != null && e.Index < racerUpgrades.Length ? racerUpgrades[e.Index]
+                    : e.IsPlayer ? VehicleUpgrades.Base : BotDriver.UpgradesFor(e.Bot != null ? e.Bot.Profile : null);
                 e.Motor.Apply(ups);
+                e.IsOvertaking = false;
+                if (e.Bot != null) { e.Bot.Driving = false; e.Bot.Begin((uint)CurrentSeed * 7919u + (uint)e.Index * 104729u); }
                 e.Motor.Brake = false;
                 Place(e, startDistance);
                 e.Motor.EngineOn = false;
@@ -146,6 +192,7 @@ namespace ApexBrake.Racing
             float lat = HomeLateral(e, distance);
             var f = path.ForwardAt(distance); f.y = 0f;
             e.Driver.TargetLateral = lat;
+            e.LineTarget = lat;
             e.Motor.PlaceAt(path.PointAt(distance, lat), Quaternion.LookRotation(f.normalized, Vector3.up));
             e.Distance = distance;
             e.Lateral = lat;
@@ -207,7 +254,20 @@ namespace ApexBrake.Racing
                 var e = _racers[i];
                 if (!e.IsOut) e.Distance = e.Driver.Distance;   // oyun dışı araç mesafesini korur
                 e.Lateral = e.Driver.Lateral;
-                e.Driver.TargetLateral = e.TargetLateralOverride ?? HomeLateral(e, e.Distance);
+                var body = e.Motor.Body;
+                _traffic[i] = new TrafficCar
+                {
+                    Distance = e.Distance, Lateral = e.Lateral,
+                    Speed = Vector3.Dot(body.linearVelocity, track.Path.ForwardAt(e.Distance)),
+                    Active = State != RaceState.Countdown && !e.IsOut && !e.Finished,
+                };
+            }
+            for (int i = 0; i < _racers.Count; i++) SteerLine(_racers[i], i, dt);
+
+            for (int i = 0; i < _racers.Count; i++)
+            {
+                var e = _racers[i];
+                if (e.Bot != null) e.Bot.Driving = State != RaceState.Countdown && !e.IsOut && !e.Finished;
 
                 if (State == RaceState.Countdown) { e.Motor.EngineOn = false; continue; }
 
@@ -221,7 +281,7 @@ namespace ApexBrake.Racing
                 }
 
                 if (e.Finished) { e.Motor.Brake = true; continue; }   // çizgiden sonra sürücü durur
-                if (e.IsPlayer && !e.IsOut) e.Motor.Brake = input != null && input.IsBraking;
+                if (e.IsPlayer && !e.IsOut && e.Bot == null) e.Motor.Brake = input != null && input.IsBraking;
 
                 if (!e.IsOut)
                 {
@@ -253,6 +313,40 @@ namespace ApexBrake.Racing
                 }
             }
             UpdateRanks();
+        }
+
+        /// <summary>
+        /// İzlenecek çizgi: ev çizgisi (+ bot gezinmesi) → sollama planlayıcısı → kademeli geçiş. Çizgi hiçbir zaman
+        /// sıçramaz (direksiyon takipçisi ani hedef değişiminde savrulur): hıza bağlı en çok yaklaşık 7 derecelik açıyla kayar.
+        /// </summary>
+        void SteerLine(RacerEntry e, int i, float dt)
+        {
+            if (e.TargetLateralOverride.HasValue)
+            {
+                e.LineTarget = e.TargetLateralOverride.Value;
+                e.Driver.TargetLateral = e.LineTarget;
+                return;
+            }
+            float home = HomeLateral(e, e.Distance);
+            if (e.Bot != null) home += e.Bot.LineOffset;
+            var path = track.Path;
+            float halfWidth = Mathf.Min(path.HalfWidthAt(e.Distance), path.HalfWidthAt(e.Distance + 25f));
+            float planned = _planner.Plan(i, home, halfWidth, _traffic, dt);
+            e.IsOvertaking = _planner.IsOvertaking(i);
+            float rate = Mathf.Max(LineShiftMin, LineShiftPerSpeed * Mathf.Abs(_traffic[i].Speed));
+            e.LineTarget = Mathf.MoveTowards(e.LineTarget, planned, rate * dt);
+            e.Driver.TargetLateral = e.LineTarget;
+        }
+
+        /// <summary>Çizgi kayma hızı: en az (m/s) ve ileri hızın oranı (tan ~ 7 derece).</summary>
+        public const float LineShiftMin = 2f, LineShiftPerSpeed = 0.12f;
+
+        static uint _globalSeed = 2166136261u;
+        uint NextSeed()
+        {
+            _globalSeed += 0x9E3779B9u;
+            _seedCounter = _seedCounter * 1664525u + 1013904223u + _globalSeed;
+            return _seedCounter;
         }
 
         void GoOut(RacerEntry e, OutReason reason)
@@ -302,6 +396,13 @@ namespace ApexBrake.Racing
         {
             if (State == RaceState.Countdown) return;
             RacerContact?.Invoke(a, b, relativeSpeed);
+        }
+
+        /// <summary>Start dizilimi (yalnızca geri sayımda): yarışçıyı ev çizgisinde verilen mesafeye koyar.</summary>
+        public void PlaceOnGrid(int racer, float distance)
+        {
+            if (State != RaceState.Countdown || racer < 0 || racer >= _racers.Count) return;
+            Place(_racers[racer], distance);
         }
 
         void OnDestroy()
